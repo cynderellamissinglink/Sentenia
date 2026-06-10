@@ -1,6 +1,10 @@
 import tkinter as tk
 from tkinter import ttk
-import subprocess, platform, re, threading, datetime, json, os, sys, csv, socket
+import subprocess, platform, re, threading, datetime, os, sys, csv, socket
+try:
+    import ujson as json
+except ImportError:
+    import json
 from PIL import Image, ImageTk
 import ctypes
 
@@ -47,7 +51,6 @@ BG          = "#080b10"
 CARD_BG     = "#0d1117"
 BORDER      = "#1c2333"
 TEXT        = "#cdd9e5"
-PINK = "#FFC0CB"
 TEXT_DIM    = "#637080"
 GREEN       = "#3fb950"; GREEN_DIM  = "#0b2114"
 YELLOW      = "#d29922"; YELLOW_DIM = "#261e07"
@@ -55,7 +58,6 @@ ORANGE      = "#e0823d"; ORANGE_DIM = "#2a1508"
 RED         = "#f85149"; RED_DIM    = "#2a0d0c"
 ACCENT      = "#58a6ff"; ACCENT_DIM = "#0c1d3a"
 SILVER = "#C0C0C0"
-GOLD = "#DDBB00"
 
 BLINK_FAST  = 320
 BLINK_MILD  = 720
@@ -291,6 +293,8 @@ def clean_host(value):
     value = value.rstrip("/")
     return value
 
+_PING_POOL = __import__("concurrent.futures", fromlist=["ThreadPoolExecutor"]).ThreadPoolExecutor(max_workers=6, thread_name_prefix="ping")
+
 # ── Ping ─────────────────────────────────────────────────────────
 def ping_host(ip, count, dot_callback=None):
     if not ip or ip == "0.0.0.0":
@@ -326,15 +330,14 @@ def ping_host(ip, count, dot_callback=None):
             if dot_callback:
                 dot_callback(idx, False)
 
-    threads = [threading.Thread(target=ping_one, args=(i,), daemon=True)
-               for i in range(count)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=3)
+    futs = [_PING_POOL.submit(ping_one, i) for i in range(count)]
+    for f in futs:
+        try:
+            f.result(timeout=4)
+        except Exception:
+            pass
 
     successes = [r for r in results if r and r[0]]
-    failures  = [r for r in results if r and not r[0]]
     recv      = len(successes)
     loss      = int(((count - recv) / count) * 100)
 
@@ -1023,14 +1026,14 @@ class MiscSidebar(tk.Frame):
             return
 
         if self._is_mouse_over():
-            self._auto_scroll_job = self.after(200, self._auto_scroll_tick)
+            self._auto_scroll_job = self.after(300, self._auto_scroll_tick)
             return
 
         top, bottom = self.canvas.yview()
 
         # All content fits — nothing to scroll
         if top == 0.0 and bottom >= 1.0:
-            self._auto_scroll_job = self.after(500, self._auto_scroll_tick)
+            self._auto_scroll_job = self.after(1000, self._auto_scroll_tick)
             return
 
         # Reverse direction at boundaries
@@ -1044,7 +1047,7 @@ class MiscSidebar(tk.Frame):
         new_top = max(0.0, min(1.0, top + step))
         self.canvas.yview_moveto(new_top)
 
-        self._auto_scroll_job = self.after(50, self._auto_scroll_tick)
+        self._auto_scroll_job = self.after(120, self._auto_scroll_tick)
 
     def _ping_all(self):
         for row in self.rows:
@@ -1088,15 +1091,6 @@ class MiscSidebar(tk.Frame):
                                  fg=TEXT_DIM, bg=BG)
         self._msg_lbl.pack(anchor="w", pady=(3, 0))
 
-    def _toggle_add_panel(self):
-        if self._add_visible:
-            self._add_panel.pack_forget()
-            self._toggle_btn.config(text="+ ADD HOST", fg=TEXT_DIM)
-            self._add_visible = False
-        else:
-            self._add_panel.pack(fill="x")
-            self._toggle_btn.config(text="▲ ADD HOST", fg=ACCENT)
-            self._add_visible = True
 
     def _setup_ph(self, entry, var, placeholder):
         var.set(placeholder)
@@ -1122,18 +1116,6 @@ class MiscSidebar(tk.Frame):
         self.rows.append(row)
         self.after(50, lambda: self.canvas.yview_moveto(1.0))
         return row
-    
-    def _rebuild_duplicates(self):
-        # Remove old duplicates
-        for w in self._duplicates:
-            w.destroy()
-        self._duplicates = []
-
-        # Clone each real row as a visual-only duplicate
-        for entry in [r.entry for r in self.rows]:
-            dup = MiscRow(self.list_frame, entry, self)
-            dup.pack(fill="x", pady=(0, 4))
-            self._duplicates.append(dup)
 
     def _add_entry(self):
         name = self._name_var.get().strip()
@@ -2646,6 +2628,7 @@ class HostCard(tk.Frame):
         self._init_card_drag(self)
         # Capture natural height before any webview activity
         self.after(200, self._capture_natural_height)
+        self.after(250, self._build_tint_cache)
 
     def _open_devices_modal(self):
         ip = (self.host.get("ip") or "").strip()
@@ -2748,15 +2731,6 @@ class HostCard(tk.Frame):
         modal.bind("<MouseWheel>",
                    lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
 
-        DEVICE_ICONS = {
-            "phone":    "📱",
-            "laptop":   "💻",
-            "printer":  "🖨",
-            "camera":   "📷",
-            "router":   "📡",
-            "computer": "🖥",
-            "unknown":  "◈",
-        }
         DEVICE_COLORS = {
             "phone":    ACCENT,
             "laptop":   GREEN,
@@ -2929,50 +2903,54 @@ class HostCard(tk.Frame):
         cb(self.app._blink_fast_state if speed == BLINK_FAST
         else self.app._blink_mild_state)
 
-    def _tint_children(self, color):
+    def _build_tint_cache(self):
         skip = {self.badge_frame, self.badge}
-        
-        # Also skip the devices button wrapper if it exists
         if hasattr(self, "_devices_btn") and self._devices_btn:
-            # Find and skip the wrapper frame
             parent = self._devices_btn.master
             if parent:
                 skip.add(parent)
-        
-        def _recurse(widget, depth=0):
+        result = []
+        def _recurse(w, depth=0):
             if depth > 5:
                 return
-            for w in widget.winfo_children():
-                if w in skip:
+            for child in w.winfo_children():
+                if child in skip:
                     continue
+                result.append(child)
+                _recurse(child, depth + 1)
+        _recurse(self)
+        self._tintable = result
+
+    def _tint_children(self, color):
+        if not getattr(self, "_tintable", None):
+            self._build_tint_cache()
+        for w in self._tintable:
+            try:
+                w.configure(bg=color)
+            except Exception:
+                pass
+
+            # Special handling for Canvas (graph)
+            if isinstance(w, tk.Canvas):
                 try:
-                    w.configure(bg=color)
+                    w.config(bg=color)
                 except Exception:
                     pass
+                if hasattr(self, "_graph_showing") and self._graph_showing:
+                    if hasattr(self, "_stats_rect_id"):
+                        try:
+                            self._graph_canvas.itemconfig(self._stats_rect_id, fill=color)
+                        except Exception:
+                            pass
 
-                # Special handling for Canvas (graph)
-                if isinstance(w, tk.Canvas):
-                    try:
-                        w.config(bg=color)
-                    except Exception:
-                        pass
-                    if hasattr(self, "_graph_showing") and self._graph_showing:
-                        if hasattr(self, "_stats_rect_id"):
-                            try:
-                                self._graph_canvas.itemconfig(self._stats_rect_id, fill=color)
-                            except Exception:
-                                pass
-
-                # Also manually handle the graph frame's header labels
-                if hasattr(self, "_graph_frame") and w == self._graph_frame:
-                    for child in w.winfo_children():
-                        if isinstance(child, tk.Frame):
-                            child.config(bg=color)
-                            for sub in child.winfo_children():
-                                if isinstance(sub, tk.Label):
-                                    sub.config(bg=color)
-                _recurse(w, depth + 1)
-        _recurse(self)
+            # Also manually handle the graph frame's header labels
+            if hasattr(self, "_graph_frame") and w == self._graph_frame:
+                for child in w.winfo_children():
+                    if isinstance(child, tk.Frame):
+                        child.config(bg=color)
+                        for sub in child.winfo_children():
+                            if isinstance(sub, tk.Label):
+                                sub.config(bg=color)
 
 
     def _ping_single(self):
@@ -5080,23 +5058,21 @@ class PingApp(tk.Tk):
     def _start_blink_clock(self):
         def fast_tick():
             self._blink_fast_state = not self._blink_fast_state
-            dead = []
+            state = self._blink_fast_state
             for cb in list(self._blink_fast_subs):
-                try: cb(self._blink_fast_state)
-                except Exception: dead.append(cb)
-            for cb in dead:
-                try: self._blink_fast_subs.remove(cb)
-                except ValueError: pass
+                try:
+                    cb(state)
+                except Exception:
+                    pass
             self.after(BLINK_FAST, fast_tick)
         def mild_tick():
             self._blink_mild_state = not self._blink_mild_state
-            dead = []
+            state = self._blink_mild_state
             for cb in list(self._blink_mild_subs):
-                try: cb(self._blink_mild_state)
-                except Exception: dead.append(cb)
-            for cb in dead:
-                try: self._blink_mild_subs.remove(cb)
-                except ValueError: pass
+                try:
+                    cb(state)
+                except Exception:
+                    pass
             self.after(BLINK_MILD, mild_tick)
         self.after(BLINK_FAST, fast_tick)
         self.after(BLINK_MILD, mild_tick)
@@ -5602,134 +5578,6 @@ class PingApp(tk.Tk):
             self._ping_done()
 
 
-
-    def _ping_main_cards(self, active):
-        for c in active:
-            c.set_pinging()
-        
-        def start_next_ping(index):
-            if index < len(active):
-                threading.Thread(target=self._ping_single_card, 
-                            args=(active[index],), daemon=True).start()
-                self.after(200, lambda: start_next_ping(index + 1))  
-        
-        start_next_ping(0)
-
-    def _ping_all_safe(self):
-        if getattr(self, "_pinging_all", False):
-            return
-
-        try:
-            self._ping_all()
-        finally:
-            self._pinging_all = False
-
-    def _ping_thread(self, cards):
-        done = [0]
-        lock = threading.Lock()
-        
-        def one(card):
-            self.after(0, lambda c=card: c._latency_history.clear())
-            target   = (card.host.get("ip") or "").strip().lower()
-            port_val = (card.host.get("port") or "").strip()
-            ep       = (card.host.get("endpoint") or "").strip()
-            
-            is_raw_ip  = bool(re.match(r"^\d{1,3}(\.\d{1,3}){3}$", target))
-            has_alpha  = bool(re.search(r"[a-z]", target))
-            is_domain  = has_alpha and not is_raw_ip
-
-            if is_domain:
-                active_port = port_val if port_val else "443"
-                
-                success_count = 0
-                total_time = 0
-                valid_times_count = 0
-                last_http_result = {}
-                http_results = [None] * PING_COUNT
-                http_lock = threading.Lock()
-
-                def http_one(idx):
-                    result = check_http(target, active_port, ep)
-                    with http_lock:
-                        http_results[idx] = result
-                    is_ok = result.get("status") == "OK" or "200" in str(result.get("status_code", ""))
-                    self.after(0, card._update_dot, idx, is_ok)
-
-                http_threads = [threading.Thread(target=http_one, args=(i,), daemon=True)
-                                for i in range(PING_COUNT)]
-                for t in http_threads:
-                    t.start()
-                for t in http_threads:
-                    t.join(timeout=5)
-
-                for idx, result in enumerate(http_results):
-                    if not result:
-                        continue
-                    is_ok = result.get("status") == "OK" or "200" in str(result.get("status_code", ""))
-                    if is_ok:
-                        success_count += 1
-                        r_time_str = result.get("response_time", "").replace("ms", "").strip()
-                        if r_time_str.isdigit():
-                            total_time += int(r_time_str)
-                            valid_times_count += 1
-                    last_http_result = result
-
-                loss_pct = int(((PING_COUNT - success_count) / PING_COUNT) * 100)
-                true_avg_ms = f"{int(total_time / valid_times_count)}ms" if valid_times_count > 0 else "—"
-
-                if success_count > 0:
-                    self.after(0, card.update_result, {
-                        "status": "UP",
-                        "avg": "—",
-                        "loss": loss_pct,
-                        "recv": success_count
-                    })
-                    self.after(0, card._update_port_status, {
-                        "status": "OPEN",
-                        "response_time": "Open"
-                    })
-                    status_code = last_http_result.get("status_code", "200")
-                    protocol = last_http_result.get("protocol", "HTTPS")
-                    self.after(0, card._update_http_status, {
-                        "status": "OK",
-                        "status_code": f"{status_code} ({true_avg_ms})",
-                        "protocol": protocol,
-                        "response_time": true_avg_ms
-                    })
-                else:
-                    port_result = check_port(target, active_port)
-                    self.after(0, card._update_port_status, port_result)
-                    self.after(0, card.update_result, {
-                        "status": "DOWN",
-                        "avg": "—",
-                        "loss": 100,
-                        "recv": 0
-                    })
-            
-            else:
-                def on_dot(idx, success):
-                    self.after(0, card._update_dot, idx, success)
-                
-                res = ping_host(target, PING_COUNT, dot_callback=on_dot)
-                self.after(0, card.update_result, res)
-                
-                if port_val:
-                    port_result = check_port(target, port_val)
-                    self.after(0, card._update_port_status, port_result)
-                
-                self.after(0, card._update_http_status, {
-                    "status": "EMPTY", "response_time": "—",
-                    "status_code": "—", "protocol": "—"
-                })
-            
-            with lock:
-                done[0] += 1
-                if done[0] == len(cards):
-                    self.after(0, self._ping_done)
-
-        for c in cards:
-            threading.Thread(target=one, args=(c,), daemon=True).start()
-
     def _ping_done(self):
         self._running = False
         self.ping_all_btn.config(state="normal", bg=CARD_BG, fg=TEXT, cursor="hand2")
@@ -5810,31 +5658,6 @@ class PingApp(tk.Tk):
             if "yellow"       in diag:                        return "yellow"
             return "dim"
 
-        def fmt_diag(raw):
-            """Reformat diagnostic string into clean columns."""
-            import re
-            avg  = re.search(r"avg=([^\s,]+)",  raw)
-            recv = re.search(r"recv=([^\s,]+)", raw)
-            sev  = re.search(r"sev=([^\s,]+)",  raw)
-            avg_v  = avg.group(1)  if avg  else "—"
-            recv_v = recv.group(1) if recv else "—"
-            sev_v  = sev.group(1)  if sev  else "—"
-            # Clean up sev label
-            sev_map = {
-                "red_blink":    "● CRIT",
-                "orange_blink": "▲ WARN",
-                "yellow_blink": "◆ MILD",
-                "yellow":       "◆ MILD",
-                "green":        "✓ OK",
-            }
-            sev_clean = sev_map.get(sev_v, sev_v)
-            # Clean avg
-            if avg_v in ("—", "﹖", "?") or not any(c.isdigit() for c in avg_v):
-                avg_clean = "   —   "
-            else:
-                avg_clean = avg_v.replace(" ms", "ms").rjust(7)
-            return f"{avg_clean}   {recv_v.ljust(6)}   {sev_clean}"
-
         card = tk.Frame(modal, bg=CARD_BG)
         card.pack(fill="both", expand=True)
 
@@ -5844,8 +5667,8 @@ class PingApp(tk.Tk):
 
         tk.Label(topbar, text="EVENT", font=("Consolas", 11, "bold"),
                 fg=SILVER, bg="#060a10").pack(side="left")
-        tk.Label(topbar, text=" LOG",  font=("Consolas", 11, "bold"),
-                fg=ACCENT, bg="#060a10").pack(side="left")
+        tk.Label(topbar, text="LOG",  font=("Consolas", 11, "bold"),
+                fg=SILVER, bg="#060a10").pack(side="left")
         self._log_count_lbl = tk.Label(topbar, text=f"  {len(all_rows)} entries",
                 font=("Consolas", 8), fg=TEXT_DIM, bg="#060a10")
         self._log_count_lbl.pack(side="left", padx=(8,0))
