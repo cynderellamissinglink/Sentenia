@@ -1398,6 +1398,286 @@ class MiscSidebar(tk.Frame):
 # ── Host Card ────────────────────────────────────────────────────
 class HostCard(tk.Frame):
 
+    def _animate_graph_drawIn(self):
+        """Animate dots appearing one by one on first show."""
+        if not self._graph_showing:
+            return
+        if not hasattr(self, "_graph_canvas") or not self._graph_canvas.winfo_exists():
+            return
+
+        data = self._latency_history[-50:]
+        n = len(data)
+        if n < 2:
+            return
+
+        step = getattr(self, "_graph_anim_step", 0)
+
+        if step <= n:
+            self._graph_anim_step = step + 1
+            self._redraw_graph_partial(step)
+            self.after(200 if step > 0 else 50, self._animate_graph_drawIn)
+        else:
+            self._graph_anim_step = n
+            self._redraw_graph()
+            self._animate_graph_pulse(0)
+
+    def _redraw_graph_partial(self, visible_count):
+        """Draw full graph (grid, fill, lines, labels, stats) but only dots up to visible_count."""
+        if not self._graph_showing:
+            return
+        if not hasattr(self, "_graph_canvas") or not self._graph_canvas.winfo_exists():
+            return
+
+        self._graph_canvas.update_idletasks()
+        W = self._graph_canvas.winfo_width()
+        H = self._graph_canvas.winfo_height()
+        if W < 100 or H < 100:
+            return
+
+        self._graph_canvas.delete("all")
+
+        full_data = self._latency_history[-50:]
+        n = len(full_data)
+        if n < 2:
+            return
+
+        valid = [v for v in full_data if v is not None]
+        max_ms = max(valid) if valid else 1
+        min_ms = min(valid) if valid else 0
+
+        STATS_H = 18
+        pad_top = 10
+        pad_bot = 32
+        pad_l = 44 if W >= 500 else 30 if W >= 300 else 20
+        pad_r = 10 if W >= 500 else 8 if W >= 300 else 5
+        graph_h = max(30, H - pad_top - pad_bot - STATS_H)
+        graph_w = max(50, W - pad_l - pad_r)
+
+        def x_of(i):
+            if n <= 1:
+                return pad_l
+            return pad_l + (i / max(1, n - 1)) * graph_w
+
+        def y_of(v):
+            if max_ms == min_ms:
+                return pad_top + graph_h * 0.5
+            return pad_top + (1 - (v - min_ms) / max(1, max_ms - min_ms)) * graph_h
+
+        floor_y = pad_top + graph_h
+
+        # ── Grid lines + Y labels ──
+        if W > 200:
+            for frac, label in [(0.0, f"{max_ms}ms"), (0.5, f"{(max_ms+min_ms)//2}ms"), (1.0, f"{min_ms}ms")]:
+                gy = pad_top + frac * graph_h
+                self._graph_canvas.create_line(pad_l, gy, W - pad_r, gy, fill=BORDER, dash=(3, 5))
+                self._graph_canvas.create_text(pad_l - 4, gy, text=label,
+                    font=("Consolas", 7), fill=TEXT_DIM, anchor="e")
+
+        # ── X-axis time labels ──
+        if W > 250:
+            x_ticks = [0, n // 4, n // 2, 3 * n // 4, n - 1]
+            for ti in x_ticks:
+                tx = x_of(ti)
+                offset = ti - (n - 1)
+                lbl = "now" if offset == 0 else str(offset)
+                fg = TEXT_DIM if offset == 0 else "#2a3340"
+                self._graph_canvas.create_text(tx, floor_y + 8, text=lbl,
+                    font=("Consolas", 7), fill=fg, anchor="center")
+
+        # ── Y positions ──
+        y_positions = []
+        for v in full_data:
+            y_positions.append(y_of(v) if v is not None else floor_y)
+
+        # ── Fill polygon (full) ──
+        fill_pts = [pad_l, floor_y]
+        for i in range(n):
+            fill_pts += [x_of(i), y_positions[i]]
+        fill_pts += [x_of(n - 1), floor_y]
+        self._graph_canvas.create_polygon(fill_pts, fill="#0c2a1a", outline="")
+
+        # ── Loss markers ──
+        for i, v in enumerate(full_data):
+            if v is None:
+                px = x_of(i)
+                marker_w = max(2, min(6, W // 100))
+                self._graph_canvas.create_rectangle(
+                    px - marker_w, floor_y - 8, px + marker_w, floor_y,
+                    fill="#2a0d0c", outline=""
+                )
+
+        # ── Lines (full) ──
+        line_width = 1 if W < 400 else 2
+        for i in range(n - 1):
+            x1, x2 = x_of(i), x_of(i + 1)
+            y1, y2 = y_positions[i], y_positions[i + 1]
+            cv, nv = full_data[i], full_data[i + 1]
+            if cv is None or nv is None:
+                lc = RED
+            elif nv <= 50:
+                lc = GREEN
+            elif nv <= 150:
+                lc = YELLOW
+            elif nv <= 300:
+                lc = ORANGE
+            else:
+                lc = RED
+            self._graph_canvas.create_line(x1, y1, x2, y2,
+                fill=lc, width=line_width, smooth=False,
+                capstyle="round", joinstyle="round")
+
+        # ── Dots: only up to visible_count, with latency labels ──
+        dot_scale = 1.0 if W >= 600 else 0.8 if W >= 400 else 0.6
+        for i in range(min(visible_count, n)):
+            v = full_data[i]
+            px = x_of(i)
+            py = y_positions[i]
+            is_last = (i == n - 1)
+            if v is not None:
+                dc = GREEN if v <= 50 else YELLOW if v <= 150 else ORANGE if v <= 300 else RED
+                if is_last:
+                    # Last dot: full pulse handled by _animate_graph_pulse, draw normally for now
+                    r = max(2, int(4 * dot_scale))
+                    self._graph_canvas.create_oval(px - r, py - r, px + r, py + r,
+                        fill=dc, outline="")
+                else:
+                    # Non-last dots: small filled dot + subtle dim glow ring
+                    r = max(2, int(2.5 * dot_scale))
+                    glow_r = r + 2
+                    # Dim glow ring (low opacity via stipple)
+                    self._graph_canvas.create_oval(
+                        px - glow_r, py - glow_r, px + glow_r, py + glow_r,
+                        fill="", outline=dc, width=1, stipple="gray25"
+                    )
+                    self._graph_canvas.create_oval(px - r, py - r, px + r, py + r,
+                        fill=dc, outline="")
+                if W > 250:
+                    self._graph_canvas.create_text(px, py - 12,
+                        text=f"{v}ms", font=("Consolas", max(6, int(7 * dot_scale)), "bold"),
+                        fill=dc, anchor="s")
+            else:
+                # Loss point: red X
+                r = max(3, int(4 * dot_scale))
+                self._graph_canvas.create_line(px - r, py - r, px + r, py + r,
+                    fill=RED, width=max(1, line_width + 1))
+                self._graph_canvas.create_line(px - r, py + r, px + r, py - r,
+                    fill=RED, width=max(1, line_width + 1))
+
+        # ── Stats bar (always visible) ──
+        bar_y = H - STATS_H
+        self._graph_canvas.create_rectangle(pad_l, bar_y, W - pad_r, H, fill=CARD_BG, outline="")
+
+        loss_count = sum(1 for v in full_data if v is None)
+        avg_val = int(sum(valid) / len(valid)) if valid else 0
+        min_val = min(valid) if valid else 0
+        max_val = max(valid) if valid else 0
+
+        stats = [
+            ("AVG",  f"{avg_val}ms", GREEN if avg_val <= 50 else YELLOW if avg_val <= 150 else RED),
+            ("MIN",  f"{min_val}ms", GREEN),
+            ("MAX",  f"{max_val}ms", GREEN if max_val <= 50 else YELLOW if max_val <= 150 else ORANGE if max_val <= 300 else RED),
+            ("LOSS", f"{loss_count}pkt", RED if loss_count > 0 else GREEN),
+        ]
+
+        avail_w = (W - pad_r) - (pad_l + 4)
+        if avail_w > 100:
+            col_w = avail_w // len(stats)
+            font_size = 7 if W > 300 else 6
+            for ci, (label, value, color) in enumerate(stats):
+                cx = pad_l + 4 + ci * col_w + col_w // 2
+                self._graph_canvas.create_text(cx, bar_y + STATS_H // 2,
+                    text=f"{label} ", font=("Consolas", font_size), fill=TEXT_DIM, anchor="e")
+                self._graph_canvas.create_text(cx, bar_y + STATS_H // 2,
+                    text=value, font=("Consolas", font_size, "bold"), fill=color, anchor="w")
+
+    def _animate_graph_pulse(self, tick):
+        """Pulse the latest data point dot after draw-in completes."""
+        if not self._graph_showing:
+            return
+        if not hasattr(self, "_graph_canvas") or not self._graph_canvas.winfo_exists():
+            return
+
+        data = self._latency_history[-50:]
+        if not data:
+            return
+
+        # Find the last non-None value and its index
+        last_idx = None
+        last_val = None
+        for i in range(len(data) - 1, -1, -1):
+            if data[i] is not None:
+                last_idx = i
+                last_val = data[i]
+                break
+
+        if last_idx is None:
+            return
+
+        self._graph_canvas.update_idletasks()
+        W = self._graph_canvas.winfo_width()
+        H = self._graph_canvas.winfo_height()
+        if W < 100 or H < 100:
+            return
+
+        n = len(data)
+        valid = [v for v in data if v is not None]
+        max_ms = max(valid) if valid else 1
+        min_ms = min(valid) if valid else 0
+
+        STATS_H = 18
+        pad_top = 10
+        pad_bot = 32
+        pad_l = 44 if W >= 500 else 30 if W >= 300 else 20
+        pad_r = 10 if W >= 500 else 8 if W >= 300 else 5
+        graph_h = max(30, H - pad_top - pad_bot - STATS_H)
+        graph_w = max(50, W - pad_l - pad_r)
+
+        def x_of(i):
+            if n <= 1:
+                return pad_l
+            return pad_l + (i / max(1, n - 1)) * graph_w
+
+        def y_of(v):
+            if max_ms == min_ms:
+                return pad_top + graph_h * 0.5
+            return pad_top + (1 - (v - min_ms) / max(1, max_ms - min_ms)) * graph_h
+
+        px = x_of(last_idx)
+        py = y_of(last_val)
+        dc = GREEN if last_val <= 50 else YELLOW if last_val <= 150 else ORANGE if last_val <= 300 else RED
+
+        dot_scale = 1.0 if W >= 600 else 0.8 if W >= 400 else 0.6
+
+        # Pulse: expand and contract over 8 ticks
+        PULSE_FRAMES = 8
+        t = tick % (PULSE_FRAMES * 2)
+        if t < PULSE_FRAMES:
+            scale_factor = 1.0 + (t / PULSE_FRAMES) * 0.8   # grow  1x → 1.8x
+        else:
+            scale_factor = 1.8 - ((t - PULSE_FRAMES) / PULSE_FRAMES) * 0.8  # shrink 1.8x → 1x
+
+        base_r = max(3, int(4 * dot_scale))
+        r = max(2, int(base_r * scale_factor))
+
+        # Delete old pulse tag, draw new one
+        self._graph_canvas.delete("pulse_dot")
+
+        # Outer glow ring
+        glow_r = r + 3
+        self._graph_canvas.create_oval(
+            px - glow_r, py - glow_r, px + glow_r, py + glow_r,
+            fill="", outline=dc, width=1,
+            tags="pulse_dot"
+        )
+        # Inner filled dot
+        self._graph_canvas.create_oval(
+            px - r, py - r, px + r, py + r,
+            fill=dc, outline="",
+            tags="pulse_dot"
+        )
+
+        self._graph_pulse_job = self.after(60, lambda: self._animate_graph_pulse(tick + 1))
+
     def _create_devices_button(self, container):
         if not container.winfo_exists():
             return
@@ -1992,7 +2272,9 @@ class HostCard(tk.Frame):
             self.after_cancel(self._graph_hide_job)
         self._graph_hide_job = self.after(15000, self._hide_latency_graph)
 
-        self._redraw_graph()
+        self._graph_anim_step = 0
+        self._graph_pulse_job = None
+        self.after(50, self._animate_graph_drawIn)
 
     def _redraw_graph(self):
         if not self._graph_showing:
@@ -2127,42 +2409,49 @@ class HostCard(tk.Frame):
                 fill=lc, width=line_width, smooth=False,
                 capstyle="round", joinstyle="round")
 
-        # ── Draw dots and "LOSS" pills for EACH point (scale sizes) ──
+        # ── Draw dots and X markers for EACH point (scale sizes) ──
         dot_scale = 1.0
         if W < 400:
             dot_scale = 0.6
         elif W < 600:
             dot_scale = 0.8
-            
+
         for i, v in enumerate(data):
             px = x_of(i)
             is_last = (i == n - 1)
             py = y_positions[i]
-            
+
             if v is not None:
-                # Good point - scale dot size
                 dc = GREEN if v <= 50 else YELLOW if v <= 150 else ORANGE if v <= 300 else RED
-                r = int((4 if is_last else 2.5) * dot_scale)
-                r = max(2, r)  # Minimum dot size
-                self._graph_canvas.create_oval(px - r, py - r, px + r, py + r,
-                    fill=dc, outline="")
-                
-                # Show latency value above every dot (if enough space)
+                if is_last:
+                    # Last dot drawn by pulse animator; draw base dot here
+                    r = max(2, int(4 * dot_scale))
+                    self._graph_canvas.create_oval(px - r, py - r, px + r, py + r,
+                        fill=dc, outline="")
+                else:
+                    # Non-last: small dot + subtle dim glow ring
+                    r = max(2, int(2.5 * dot_scale))
+                    glow_r = r + 2
+                    self._graph_canvas.create_oval(
+                        px - glow_r, py - glow_r, px + glow_r, py + glow_r,
+                        fill="", outline=dc, width=1, stipple="gray25"
+                    )
+                    self._graph_canvas.create_oval(px - r, py - r, px + r, py + r,
+                        fill=dc, outline="")
+
                 if W > 250:
-                    label_y = py - 12  # position above the dot
                     font_size = int(7 * dot_scale)
-                    self._graph_canvas.create_text(px, label_y,
+                    self._graph_canvas.create_text(px, py - 12,
                         text=f"{v}ms", font=("Consolas", max(6, font_size), "bold"),
-                        fill=dc, anchor="s")  # anchor="s" puts text above the point
+                        fill=dc, anchor="s")
             else:
-                # Loss point - RED X at bottom
+                # Loss point: red X
                 if W > 150:
-                    r = int(4 * dot_scale)
-                    r = max(2, r)
+                    r = max(3, int(4 * dot_scale))
                     self._graph_canvas.create_line(px - r, py - r, px + r, py + r,
-                        fill=RED, width=max(1, int(line_width)))
+                        fill=RED, width=max(1, int(line_width) + 1))
                     self._graph_canvas.create_line(px - r, py + r, px + r, py - r,
-                        fill=RED, width=max(1, int(line_width)))
+                        fill=RED, width=max(1, int(line_width) + 1))
 
         # ── Stats bar (scale text if needed) ──
         bar_y = H - STATS_H
@@ -2198,6 +2487,10 @@ class HostCard(tk.Frame):
 
         if hasattr(self, "_stats_rect_id"):
             del self._stats_rect_id
+
+        if hasattr(self, "_graph_pulse_job") and self._graph_pulse_job:
+            self.after_cancel(self._graph_pulse_job)
+            self._graph_pulse_job = None
 
         if hasattr(self, "_graph_hide_job") and self._graph_hide_job:
             self.after_cancel(self._graph_hide_job)
