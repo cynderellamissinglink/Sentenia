@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 import subprocess, platform, re, threading, datetime, os, sys, csv, socket
+import math
 try:
     import ujson as json
 except ImportError:
@@ -33,6 +34,7 @@ def _asset(relative_path):
     return os.path.join(base, relative_path)
 
 BACKUP_ICON_PATH = _asset("assets/images/backup.png") 
+START_ICON_PATH = _asset("assets/images/start/start.png")
 
 # ── Constants ────────────────────────────────────────────────────
 PING_COUNT  = 10
@@ -74,6 +76,8 @@ DIM_ACCENT    = "#1e3550"
 DIM_ACCENT_BG = "#080f18"
 
 # ── Severity helpers ─────────────────────────────────────────────
+# After setting colors in _apply_theme, update SEV_STYLE
+global SEV_STYLE
 SEV_STYLE = {
     "green":        (GREEN,  GREEN_DIM,  None),
     "yellow":       (YELLOW, YELLOW_DIM, None),
@@ -83,27 +87,68 @@ SEV_STYLE = {
 }
 
 THEMES = {
-    "OBSIDIAN": {"BG": "#080b10", "CARD_BG": "#0d1117", "BORDER": "#1c2333"},  # default blue-black
-    "MIDNIGHT": {"BG": "#000000", "CARD_BG": "#0a0a0a", "BORDER": "#1a1a1a"},  # pure black
-    "NAVY":     {"BG": "#020814", "CARD_BG": "#051020", "BORDER": "#0a2040"},  # deep blue
-    "COBALT":   {"BG": "#030d1f", "CARD_BG": "#071828", "BORDER": "#0f3060"},  # bright blue tint
-    "TEAL":     {"BG": "#021412", "CARD_BG": "#041e1a", "BORDER": "#083830"},  # deep teal
-    "FOREST":   {"BG": "#041008", "CARD_BG": "#071a0c", "BORDER": "#0f3018"},  # deep green
-    "MOSS":     {"BG": "#081206", "CARD_BG": "#0f1e0a", "BORDER": "#1e3a10"},  # olive green
-    "DUSK":     {"BG": "#0c0818", "CARD_BG": "#140e24", "BORDER": "#281848"},  # deep purple
-    "AMETHYST": {"BG": "#10061a", "CARD_BG": "#180a28", "BORDER": "#301450"},  # vivid purple
-    "CRIMSON":  {"BG": "#140406", "CARD_BG": "#200609", "BORDER": "#400c12"},  # deep red
-    "WINE":     {"BG": "#120308", "CARD_BG": "#1c050d", "BORDER": "#380a1a"},  # dark maroon
-    "EMBER":    {"BG": "#140800", "CARD_BG": "#201004", "BORDER": "#402008"},  # dark orange
-    "BRONZE":   {"BG": "#120e02", "CARD_BG": "#1c1604", "BORDER": "#362c08"},  # dark gold
-    "SLATE":    {"BG": "#0a0c10", "CARD_BG": "#121418", "BORDER": "#202430"},  # cool gray
-    "GRAPHITE": {"BG": "#0c0c0c", "CARD_BG": "#161616", "BORDER": "#282828"},  # warm gray
-    "CHARCOAL": {"BG": "#080808", "CARD_BG": "#111111", "BORDER": "#202020"},  # near black gray
-    "ROSE":     {"BG": "#140608", "CARD_BG": "#200a0e", "BORDER": "#401020"},  # deep rose
-    "PINK":     {"BG": "#12040e", "CARD_BG": "#1e0818", "BORDER": "#3a1030"},  # deep pink
-    "MAGENTA":  {"BG": "#140410", "CARD_BG": "#200618", "BORDER": "#3c0c30"},  # dark magenta
+    # === DARK THEMES (12) ===
+    "OBSIDIAN": {"BG": "#0d1117", "CARD_BG": "#121826", "BORDER": "#1e2538"},
+    "MIDNIGHT": {"BG": "#0a0a0a", "CARD_BG": "#141414", "BORDER": "#222222"},
+    "NAVY":     {"BG": "#0a1020", "CARD_BG": "#121830", "BORDER": "#1a2850"},
+    "FOREST":   {"BG": "#0a1a0a", "CARD_BG": "#142a14", "BORDER": "#1e4020"},
+    "AMETHYST": {"BG": "#141028", "CARD_BG": "#1e1838", "BORDER": "#282450"},
+    "CRIMSON":  {"BG": "#1a0c10", "CARD_BG": "#281418", "BORDER": "#382028"},
+    "EMBER":    {"BG": "#1a1008", "CARD_BG": "#281c10", "BORDER": "#382818"},
+    "SLATE":    {"BG": "#0e1018", "CARD_BG": "#181c28", "BORDER": "#222838"},
+    "OCEAN":    {"BG": "#0a1428", "CARD_BG": "#0d1f3c", "BORDER": "#1a3a6e"},
+    "COPPER":   {"BG": "#1a0e05", "CARD_BG": "#2a1808", "BORDER": "#4a2a10"},
+    "GRAPHITE": {"BG": "#101010", "CARD_BG": "#1a1a1a", "BORDER": "#282828"},
+    "ROSE":     {"BG": "#180c14", "CARD_BG": "#241420", "BORDER": "#342030"},
+    
+    # === LITE THEMES (10) ===
+    "SAKURA":   {"BG": "#ffe4e8", "CARD_BG": "#fff0f2", "BORDER": "#ffb6c4", "TEXT": "#4a2a3a", "TEXT_DIM": "#8a6a7a"},
+    "STARDUST": {"BG": "#f0f0f5", "CARD_BG": "#fafaff", "BORDER": "#d0d0e0", "TEXT": "#2a2a3a", "TEXT_DIM": "#6a6a7a"},
+    "AQUA":     {"BG": "#e0f7fa", "CARD_BG": "#f0fdfe", "BORDER": "#80deea", "TEXT": "#1a4a5a", "TEXT_DIM": "#5a8a9a"},
+    "JADE":     {"BG": "#e0f5e8", "CARD_BG": "#f0faf2", "BORDER": "#80d8b0", "TEXT": "#1a4a2a", "TEXT_DIM": "#5a8a6a"},
+    "LAVENDER": {"BG": "#f0e8ff", "CARD_BG": "#faf4ff", "BORDER": "#c0b0ff", "TEXT": "#2a1a4a", "TEXT_DIM": "#6a5a8a"},
+    "RUBY":     {"BG": "#ffe0e0", "CARD_BG": "#fff0f0", "BORDER": "#ff9090", "TEXT": "#5a1a1a", "TEXT_DIM": "#9a5a5a"},
+    "AMBER":    {"BG": "#fff0e0", "CARD_BG": "#fffaf0", "BORDER": "#ffc080", "TEXT": "#5a3a1a", "TEXT_DIM": "#9a7a5a"},
+    "MIST":     {"BG": "#e8ecf0", "CARD_BG": "#f4f6f8", "BORDER": "#b0c0d0", "TEXT": "#2a3a4a", "TEXT_DIM": "#6a7a8a"},
+    "STONE":    {"BG": "#e8e8e8", "CARD_BG": "#f4f4f4", "BORDER": "#c0c0c0", "TEXT": "#3a3a3a", "TEXT_DIM": "#7a7a7a"},
+    "COTTON":   {"BG": "#f0e8ff", "CARD_BG": "#faf4ff", "BORDER": "#d0b0ff", "TEXT": "#2a1a4a", "TEXT_DIM": "#6a5a8a"},
+    
+    "LEGACY": {
+        "BG": "#0d1117",        # Same as OBSIDIAN background
+        "CARD_BG": "#121826",   # Same as OBSIDIAN card background
+        "BORDER": "#42413f",    # Gold border
+        "TEXT": "#cdd9e5",      # Same as OBSIDIAN text
+        "TEXT_DIM": "#5a7a9a",  # Slightly blue-tinted dim text
+    },
 }
-_active_theme = "DARK"
+
+_active_theme = "OBSIDIAN"
+
+def is_light_color(hex_color):
+    """Determine if a hex color is light or dark."""
+    hex_color = hex_color.lstrip('#')
+    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+    brightness = (r * 0.299 + g * 0.587 + b * 0.114)
+    return brightness > 128
+
+def lighten_color(hex_color, amount=0.3):
+    """Lighten a hex color by amount (0-1)."""
+    hex_color = hex_color.lstrip('#')
+    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+    r = min(255, int(r + (255 - r) * amount))
+    g = min(255, int(g + (255 - g) * amount))
+    b = min(255, int(b + (255 - b) * amount))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+def darken_color(hex_color, amount=0.3):
+    """Darken a hex color by amount (0-1)."""
+    hex_color = hex_color.lstrip('#')
+    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+    r = int(r * (1 - amount))
+    g = int(g * (1 - amount))
+    b = int(b * (1 - amount))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
 
 def loss_severity(pct):
     if pct <= 1:   return "green"
@@ -130,6 +175,21 @@ MISC_PATH     = os.path.join(_CONFIGS_DIR, "nm_misc.json")
 SETTINGS_PATH = os.path.join(_CONFIGS_DIR, "nm_settings.json")
 LOG_PATH      = os.path.join(_STORAGE_DIR, "nm_log.csv")
 
+
+def convert_to_png(source_path, dest_path):
+    """Convert JPG/JPEG to PNG, or copy if already PNG."""
+    try:
+        from PIL import Image
+        img = Image.open(source_path)
+        # Convert RGBA for PNG (handle transparency)
+        if img.mode in ('RGBA', 'LA', 'P'):
+            img.save(dest_path, 'PNG')
+        else:
+            img.convert('RGB').save(dest_path, 'PNG')
+        return True
+    except Exception:
+        return False
+    
 def load_settings():
     """Load the whole settings dict (branding + theme) with defaults."""
     default = {
@@ -1150,6 +1210,7 @@ class MiscSidebar(tk.Frame):
 
     def _open_add_misc_modal(self):
         modal = tk.Toplevel(self)
+        modal.withdraw()
         modal.title("")
         modal.configure(bg=BG)
         modal.resizable(False, False)
@@ -1169,6 +1230,7 @@ class MiscSidebar(tk.Frame):
 
         # Border
         modal.configure(highlightbackground=SILVER, highlightthickness=0)
+        root._dark_titlebar_for(modal)
 
         card = tk.Frame(
             modal,
@@ -1177,6 +1239,8 @@ class MiscSidebar(tk.Frame):
             pady=14
         )
         card.pack(fill="both", expand=True)
+
+        modal.deiconify()
 
         # Title
         tk.Label(
@@ -1395,8 +1459,19 @@ class HostCard(tk.Frame):
         STATS_H = 18
         pad_top = 10
         pad_bot = 32
-        pad_l = 44 if W >= 500 else 30 if W >= 300 else 20
-        pad_r = 10 if W >= 500 else 8 if W >= 300 else 5
+        
+        # Responsive padding based on width AND theme brightness
+        is_light = is_light_color(BG)
+        if W < 300:
+            pad_l = 20
+            pad_r = 5
+        elif W < 500:
+            pad_l = 30 if not is_light else 35  # Slightly more padding for light themes
+            pad_r = 8
+        else:
+            pad_l = 44 if not is_light else 50
+            pad_r = 10
+        
         graph_h = max(30, H - pad_top - pad_bot - STATS_H)
         graph_w = max(50, W - pad_l - pad_r)
         floor_y = pad_top + graph_h
@@ -1453,16 +1528,38 @@ class HostCard(tk.Frame):
         full_data = self._latency_history[-50:]
         n = len(full_data)
         if n < 2:
+            # Show a "no data" message if needed
+            self._graph_canvas.create_text(
+                W//2, H//2, 
+                text="Collecting data...", 
+                font=("Consolas", 9), 
+                fill=TEXT_DIM
+            )
             return
 
         valid, max_ms, min_ms, STATS_H, pad_top, pad_l, pad_r, graph_h, graph_w, floor_y, x_of, y_of = \
             self._graph_layout(W, H, full_data)
 
+        # Determine fill color based on theme brightness
+        is_light = is_light_color(BG)
+        
+        # Fill color under graph (light or dark)
+        if is_light:
+            fill_color = lighten_color(GREEN, 0.7)  # Light green for light themes
+            loss_marker_color = lighten_color(RED, 0.7)  # Light red for loss markers
+            grid_color = darken_color(BORDER, 0.3)  # Darker grid for light themes
+            stats_bg = lighten_color(CARD_BG, 0.2)
+        else:
+            fill_color = "#0c2a1a"  # Dark green for dark themes
+            loss_marker_color = "#2a0d0c"  # Dark red for loss markers
+            grid_color = BORDER
+            stats_bg = CARD_BG
+
         # ── Grid lines + Y labels ──
         if W > 200:
             for frac, label in [(0.0, f"{max_ms}ms"), (0.5, f"{(max_ms+min_ms)//2}ms"), (1.0, f"{min_ms}ms")]:
                 gy = pad_top + frac * graph_h
-                self._graph_canvas.create_line(pad_l, gy, W - pad_r, gy, fill=BORDER, dash=(3, 5))
+                self._graph_canvas.create_line(pad_l, gy, W - pad_r, gy, fill=grid_color, dash=(3, 5))
                 self._graph_canvas.create_text(pad_l - 4, gy, text=label,
                     font=("Consolas", 7), fill=TEXT_DIM, anchor="e")
 
@@ -1473,7 +1570,7 @@ class HostCard(tk.Frame):
                 tx = x_of(ti)
                 offset = ti - (n - 1)
                 lbl = "now" if offset == 0 else str(offset)
-                fg = TEXT_DIM if offset == 0 else "#2a3340"
+                fg = TEXT if offset == 0 else TEXT_DIM
                 self._graph_canvas.create_text(tx, floor_y + 8, text=lbl,
                     font=("Consolas", 7), fill=fg, anchor="center")
 
@@ -1487,7 +1584,7 @@ class HostCard(tk.Frame):
         for i in range(n):
             fill_pts += [x_of(i), y_positions[i]]
         fill_pts += [x_of(n - 1), floor_y]
-        self._graph_canvas.create_polygon(fill_pts, fill="#0c2a1a", outline="")
+        self._graph_canvas.create_polygon(fill_pts, fill=fill_color, outline="")
 
         # ── Loss markers ──
         for i, v in enumerate(full_data):
@@ -1496,7 +1593,7 @@ class HostCard(tk.Frame):
                 marker_w = max(2, min(6, W // 100))
                 self._graph_canvas.create_rectangle(
                     px - marker_w, floor_y - 8, px + marker_w, floor_y,
-                    fill="#2a0d0c", outline=""
+                    fill=loss_marker_color, outline=""
                 )
 
         # ── Lines (full) ──
@@ -1521,7 +1618,9 @@ class HostCard(tk.Frame):
 
         # ── Dots: only up to visible_count, with latency labels ──
         dot_scale = 1.0 if W >= 600 else 0.8 if W >= 400 else 0.6
-        for i in range(min(visible_count, n)):
+        visible_limit = min(visible_count, n)
+        
+        for i in range(visible_limit):
             v = full_data[i]
             px = x_of(i)
             py = y_positions[i]
@@ -1529,15 +1628,12 @@ class HostCard(tk.Frame):
             if v is not None:
                 dc = GREEN if v <= 50 else YELLOW if v <= 150 else ORANGE if v <= 300 else RED
                 if is_last:
-                    # Last dot: full pulse handled by _animate_graph_pulse, draw normally for now
                     r = max(2, int(4 * dot_scale))
                     self._graph_canvas.create_oval(px - r, py - r, px + r, py + r,
-                        fill=dc, outline="")
+                        fill=dc, outline="", tags="last_dot")
                 else:
-                    # Non-last dots: small filled dot + subtle dim glow ring
                     r = max(2, int(2.5 * dot_scale))
                     glow_r = r + 2
-                    # Dim glow ring (low opacity via stipple)
                     self._graph_canvas.create_oval(
                         px - glow_r, py - glow_r, px + glow_r, py + glow_r,
                         fill="", outline=dc, width=1, stipple="gray25"
@@ -1549,7 +1645,6 @@ class HostCard(tk.Frame):
                         text=f"{v}ms", font=("Consolas", max(6, int(7 * dot_scale)), "bold"),
                         fill=dc, anchor="s")
             else:
-                # Loss point: red X
                 r = max(3, int(4 * dot_scale))
                 self._graph_canvas.create_line(px - r, py - r, px + r, py + r,
                     fill=RED, width=max(1, line_width + 1))
@@ -1558,7 +1653,7 @@ class HostCard(tk.Frame):
 
         # ── Stats bar (always visible) ──
         bar_y = H - STATS_H
-        self._graph_canvas.create_rectangle(pad_l, bar_y, W - pad_r, H, fill=CARD_BG, outline="")
+        self._graph_canvas.create_rectangle(pad_l, bar_y, W - pad_r, H, fill=stats_bg, outline="")
 
         loss_count = sum(1 for v in full_data if v is None)
         avg_val = int(sum(valid) / len(valid)) if valid else 0
@@ -2018,7 +2113,7 @@ class HostCard(tk.Frame):
             if not self._loading_dots or not self._loading_dots[0].winfo_exists(): return
             self._spin_state = (getattr(self, "_spin_state", 0) + 1) % len(self._loading_dots)
             for i, d in enumerate(self._loading_dots):
-                d.config(fg=TEXT if i == self._spin_state else BORDER)
+                d.config(fg=TEXT if i == self._spin_state else TEXT_DIM)
             self.after(180, animate_spinner)
         animate_spinner()
 
@@ -2164,18 +2259,57 @@ class HostCard(tk.Frame):
     def _hide_webview(self):
         if not self._webview_showing:
             return
+        
+        # Stop any pending webview jobs
+        if hasattr(self, "_webview_show_job") and self._webview_show_job:
+            self.after_cancel(self._webview_show_job)
+            self._webview_show_job = None
+        if hasattr(self, "_webview_hide_job") and self._webview_hide_job:
+            self.after_cancel(self._webview_hide_job)
+            self._webview_hide_job = None
+        
+        # Stop the dot animation
+        if hasattr(self, "_blink_state"):
+            self._blink_state = False
+        
         self._webview_showing = False
         self._web_frame.pack_forget()
+        
+        # Destroy webview widget
         if hasattr(self, "_webview_widget") and self._webview_widget:
             try:
                 self._webview_widget.destroy()
             except Exception:
                 pass
             self._webview_widget = None
+        
+        # Destroy header
+        if hasattr(self, "_web_header") and self._web_header.winfo_exists():
+            self._web_header.destroy()
+            delattr(self, "_web_header")
+        
+        # Destroy separator
+        if hasattr(self, "_web_sep") and self._web_sep.winfo_exists():
+            self._web_sep.destroy()
+            delattr(self, "_web_sep")
+        
+        # Destroy content container
+        if hasattr(self, "_content_container") and self._content_container.winfo_exists():
+            self._content_container.destroy()
+            delattr(self, "_content_container")
+        
+        # Destroy loading overlay if still exists
+        if hasattr(self, "_loading_overlay") and self._loading_overlay.winfo_exists():
+            self._loading_overlay.destroy()
+            delattr(self, "_loading_overlay")
+            if hasattr(self, "_loading_dots"):
+                self._loading_dots.clear()
+        
         self._content.pack(fill="both", expand=True)
         self.configure(padx=12, pady=22)
-        if self._locked_height:
-            self.configure(height=self._locked_height)
+        
+        # Force geometry update to eliminate any leftover space
+        self.update_idletasks()
         self.grid_propagate(False)
         self.pack_propagate(False)
 
@@ -2190,7 +2324,8 @@ class HostCard(tk.Frame):
         self._graph_showing = True
         self._content.pack_forget()
 
-        self._graph_frame = tk.Frame(self, bg=CARD_BG)
+        graph_frame_bg = lighten_color(CARD_BG, 0.02) if is_light_color(BG) else CARD_BG
+        self._graph_frame = tk.Frame(self, bg=graph_frame_bg)
         self._graph_frame.pack(fill="both", expand=True)
         self._graph_frame.pack_propagate(False)
 
@@ -2218,8 +2353,9 @@ class HostCard(tk.Frame):
                 fg="#10b981", bg=CARD_BG).place(relx=1.0, x=-8, rely=0.5, anchor="e")
 
         # Canvas for graph
+        graph_bg = lighten_color(CARD_BG, 0.05) if is_light_color(BG) else CARD_BG
         self._graph_canvas = tk.Canvas(
-            self._graph_frame, bg=CARD_BG,
+            self._graph_frame, bg=graph_bg,
             highlightthickness=0
         )
         self._graph_canvas.pack(fill="both", expand=True, padx=8, pady=(4, 6))
@@ -2263,8 +2399,12 @@ class HostCard(tk.Frame):
         if W < 100 or H < 100:
             self.after(500, self._redraw_graph)
             return
-
+        
+        graph_bg = lighten_color(CARD_BG, 0.05) if is_light_color(BG) else CARD_BG
+        self._graph_canvas.config(bg=graph_bg)
+        
         self._graph_canvas.delete("all")
+
         data = self._latency_history[-50:]
         n = len(data)
         if n < 2:
@@ -2342,7 +2482,8 @@ class HostCard(tk.Frame):
             py = y_positions[i]
             fill_pts += [px, py]
         fill_pts += [x_of(n-1), floor_y]
-        self._graph_canvas.create_polygon(fill_pts, fill="#0c2a1a", outline="")
+        fill_color = lighten_color(GREEN, 0.85) if is_light_color(BG) else "#0c2a1a"
+        self._graph_canvas.create_polygon(fill_pts, fill=fill_color, outline="")
 
         # ── Draw RED fill at bottom for loss points ──
         for i, v in enumerate(data):
@@ -2350,9 +2491,10 @@ class HostCard(tk.Frame):
                 px = x_of(i)
                 # Scale marker size based on width
                 marker_w = max(2, min(6, W // 100))
+                loss_marker_color = lighten_color(RED, 0.85) if is_light_color(BG) else "#2a0d0c"
                 self._graph_canvas.create_rectangle(
                     px - marker_w, floor_y - 8, px + marker_w, floor_y,
-                    fill="#2a0d0c", outline=""
+                    fill=loss_marker_color, outline=""
                 )
 
         # ── Draw lines (thinner when window is small) ──
@@ -2428,8 +2570,9 @@ class HostCard(tk.Frame):
 
         # ── Stats bar (scale text if needed) ──
         bar_y = H - STATS_H
+        stats_bg = darken_color(CARD_BG, 0.1) if is_light_color(BG) else CARD_BG
         self._stats_rect_id = self._graph_canvas.create_rectangle(
-            pad_l, bar_y, W - pad_r, H, fill=CARD_BG, outline=""
+            pad_l, bar_y, W - pad_r, H, fill=stats_bg, outline=""
         )
 
         loss_count = sum(1 for v in data if v is None)
@@ -2667,15 +2810,16 @@ class HostCard(tk.Frame):
             pass
 
         # ── Header ──
-        hdr = tk.Frame(modal, bg="#060a10", padx=16, pady=10)
+        hdr_bg = darken_color(BG, 0.2) if is_light_color(BG) else "#060a10"
+        hdr = tk.Frame(modal, bg=hdr_bg, padx=16, pady=10)
         hdr.pack(fill="x")
         tk.Label(hdr, text="CONNECTED", font=("Consolas", 11, "bold"),
-                 fg=TEXT, bg="#060a10").pack(side="left")
+                 fg=TEXT, bg=hdr_bg).pack(side="left")
         tk.Label(hdr, text="DEVICES", font=("Consolas", 11, "bold"),
-                 fg=TEXT, bg="#060a10").pack(side="left")
+                 fg=TEXT, bg=hdr_bg).pack(side="left")
         vm = self.host.get("vm_name", "")
         tk.Label(hdr, text=f"  {vm} — {ip}/24",
-                 font=("Consolas", 8), fg=TEXT_DIM, bg="#060a10").pack(side="left")
+                 font=("Consolas", 8), fg=TEXT_DIM, bg=hdr_bg).pack(side="left")
 
         # ── Count bar ──
         count_bar = tk.Frame(modal, bg=CARD_BG, padx=16, pady=6)
@@ -3181,8 +3325,14 @@ class HostCard(tk.Frame):
             self._start_blink(fg, bg, TEXT_DIM, BG, bspeed, card_tint=tint)
         else:
             self._stop_blink()
-            self.badge.config(fg=fg, bg=bg)
-            self.badge_frame.config(bg=bg)
+            if sev == "green" and is_light_color(BG):
+                badge_fg = darken_color(GREEN, 0.2)
+                badge_bg = lighten_color(GREEN, 0.7)
+            else:
+                badge_fg = fg
+                badge_bg = bg
+            self.badge.config(fg=badge_fg, bg=badge_bg)
+            self.badge_frame.config(bg=badge_bg)
             border_col = fg if sev != "green" else BORDER
             self.configure(highlightbackground=border_col, bg=CARD_BG)
             self._tint_children(CARD_BG)
@@ -3402,16 +3552,539 @@ class HostCard(tk.Frame):
         self.badge_frame.config(bg=ACCENT_DIM)
         self.after(2000, self._ping_single)
 
+# ── Home Panel ───────────────────────────────────────────────────
+class HomePanel(tk.Frame):
+    def __init__(self, parent, app, **kw):
+        super().__init__(parent, bg=BG, **kw)
+        self.app = app
+        self._speed_job = None
+        self._latency_points = []
+        self._test_started = False
+        self._build()
+
+        def draw_prog(pct, color=ACCENT):
+            if hasattr(self, '_prog_bar') and self._prog_bar.winfo_exists():
+                self._prog_bar.update_idletasks()
+                W = self._prog_bar.winfo_width() or 200
+                self._prog_bar.delete("all")
+                self._prog_bar.create_rectangle(0, 0, W, 3, fill=BORDER, outline="")
+                fill_w = int(W * pct / 100)
+                if fill_w > 0:
+                    self._prog_bar.create_rectangle(0, 0, fill_w, 3, fill=color, outline="")
+        
+        self._draw_prog = draw_prog
+        
+        # Create progress bar immediately on startup
+        self._prog_bar = tk.Canvas(
+            self._spd_frame,
+            bg=CARD_BG, height=4, highlightthickness=0
+        )
+        self._prog_bar.pack(fill="x", pady=(8, 0))
+        self._draw_prog(0, CARD_BG)  # Draw empty/invisible progress bar
+        
+        # Set placeholder values immediately on startup
+        for k in self._speed_tiles:
+            self._speed_tiles[k].config(text="—", fg=TEXT_DIM, width=8)
+        
+        self.after(1000, self._auto_start_test)
+        self._stats_update_job = None
+        self._update_stats()
+
+
+    def _auto_start_test(self):
+        if not self._test_started:
+            self._test_started = True
+            # Delay first test by 5 seconds (5000 ms)
+            self.after(5000, self._run_speed_test)
+
+    def _get_last_month_range(self):
+        """Get the date range for the previous month"""
+        today = datetime.datetime.now()
+        first_of_current = datetime.datetime(today.year, today.month, 1)
+        last_month_end = first_of_current - datetime.timedelta(days=1)
+        last_month_start = datetime.datetime(last_month_end.year, last_month_end.month, 1)
+        return last_month_start, last_month_end
+
+    def _calculate_monthly_stats(self):
+        """Calculate failure statistics for the previous month"""
+        stats = {
+            "total_failures": "—",
+            "unique_failing_ips": "—",
+            "most_failing_ip": "—",
+            "most_failing_ip_count": "—",
+            "most_failing_server": "—",
+            "most_failing_server_count": "—",
+            "avg_failures_per_day": "—",
+        }
+        
+        if not os.path.exists(LOG_PATH):
+            return stats
+        
+        try:
+            start_date, end_date = self._get_last_month_range()
+            
+            ip_failures = {}
+            server_failures = {}
+            daily_failures = {}
+            total_failures = 0
+            
+            with open(LOG_PATH, newline="", encoding="utf-8", errors="replace") as f:
+                import csv as _csv
+                for row in _csv.DictReader(f):
+                    ts_raw = row.get("timestamp", "")
+                    try:
+                        dt = datetime.datetime.strptime(ts_raw, "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        continue
+                    
+                    if dt < start_date or dt > end_date:
+                        continue
+                    
+                    ip = row.get("ip", "")
+                    server = row.get("server", "")
+                    what = row.get("what", "")
+                    
+                    is_failure = (
+                        "loss=100%" in what or 
+                        "TIMEOUT" in what or 
+                        "DOWN" in what or
+                        "UNREACHABLE" in what
+                    )
+                    
+                    if is_failure:
+                        total_failures += 1
+                        
+                        if ip and ip != "0.0.0.0":
+                            ip_failures[ip] = ip_failures.get(ip, 0) + 1
+                        
+                        if server:
+                            server_failures[server] = server_failures.get(server, 0) + 1
+                        
+                        day_key = dt.strftime("%Y-%m-%d")
+                        daily_failures[day_key] = daily_failures.get(day_key, 0) + 1
+            
+            stats["total_failures"] = f"{total_failures}"
+            stats["unique_failing_ips"] = f"{len(ip_failures)}"
+            
+            if ip_failures:
+                worst_ip = max(ip_failures.items(), key=lambda x: x[1])
+                stats["most_failing_ip"] = worst_ip[0]
+                stats["most_failing_ip_count"] = f"{worst_ip[1]}"
+            
+            if server_failures:
+                worst_server = max(server_failures.items(), key=lambda x: x[1])
+                server_name = worst_server[0]
+                if len(server_name) > 20:
+                    server_name = server_name[:17] + "..."
+                stats["most_failing_server"] = server_name
+                stats["most_failing_server_count"] = f"{worst_server[1]}"
+            
+            if daily_failures:
+                days_in_month = (end_date - start_date).days + 1
+                avg_per_day = total_failures / days_in_month if days_in_month > 0 else 0
+                stats["avg_failures_per_day"] = f"{avg_per_day:.1f}"
+            
+        except Exception as e:
+            print(f"Error calculating monthly stats: {e}")
+        
+        return stats
+
+    def _update_stats(self):
+        """Update the 5 monthly stat cards"""
+        stats = self._calculate_monthly_stats()
+        
+        self._stat_labels["total_failures"].config(text=stats["total_failures"])
+        self._stat_labels["unique_failing_ips"].config(text=stats["unique_failing_ips"])
+        
+        self._stat_labels["most_failing_ip_count"].config(text=stats["most_failing_ip_count"])
+        self._stat_labels["most_failing_ip_name"].config(text=stats["most_failing_ip"])
+        
+        self._stat_labels["most_failing_server_count"].config(text=stats["most_failing_server_count"])
+        self._stat_labels["most_failing_server_name"].config(text=stats["most_failing_server"])
+        
+        self._stat_labels["avg_failures_per_day"].config(text=stats["avg_failures_per_day"])
+        
+        self._stats_ts.config(text=datetime.datetime.now().strftime("%H:%M:%S"))
+        
+        if self._stats_update_job:
+            self.after_cancel(self._stats_update_job)
+        self._stats_update_job = self.after(30000, self._update_stats)
+
+    def _run_speed_test(self):
+        """Optimized speed test with faster timeouts and lower accuracy for speed"""
+        if hasattr(self, '_test_running') and self._test_running:
+            return
+        
+        self._test_running = True
+        self._run_btn.config(state="disabled", text="TESTING…", fg=TEXT_DIM, bg=BORDER)
+        self._run_btn_wrap.config(bg=BORDER)
+        
+        # Set fixed-width placeholders BEFORE animation starts
+        for k in self._speed_tiles:
+            self._speed_tiles[k].config(text="—", fg=TEXT_DIM, width=8)
+        
+        # Progress bar already exists, just reset it
+        self._draw_prog(0, ACCENT)
+        self._prog_pct = 0
+        self._prog_stop = False
+
+        def _tick_bar(target_pct, label, color=ACCENT):
+            if self._prog_stop:
+                return
+            self._speed_status.config(text=label, fg=YELLOW)
+            step = max(1, (target_pct - self._prog_pct) // 6)
+            if self._prog_pct < target_pct:
+                self._prog_pct = min(target_pct, self._prog_pct + step)
+                self._draw_prog(self._prog_pct, color)
+                self.after(25, lambda: _tick_bar(target_pct, label, color))
+
+        def _draw_prog(self_ref, pct, color=ACCENT):
+            c = self_ref._prog_bar
+            if not c.winfo_exists():
+                return
+            c.update_idletasks()
+            W = c.winfo_width() or 200
+            c.delete("all")
+            c.create_rectangle(0, 0, W, 3, fill=BORDER, outline="")
+            fill_w = int(W * pct / 100)
+            if fill_w > 0:
+                c.create_rectangle(0, 0, fill_w, 3, fill=color, outline="")
+
+        self._draw_prog = lambda pct, color=ACCENT: _draw_prog(self, pct, color)
+
+        self._spin_chars = ["◐","◓","◑","◒"]
+        self._spin_idx   = 0
+        self._spin_stop  = False
+
+        def _spin():
+            if self._spin_stop:
+                return
+            ch = self._spin_chars[self._spin_idx % 4]
+            self._spin_idx += 1
+            for k, lbl in self._speed_tiles.items():
+                if lbl.cget("text") in self._spin_chars or lbl.cget("text") == "—":
+                    lbl.config(text=ch, fg=TEXT_DIM)
+            self.after(120, _spin)
+        _spin()
+
+        phase_server   = threading.Event()
+        phase_download = threading.Event()
+        phase_upload   = threading.Event()
+
+        def _animate():
+            _tick_bar(15,  " ", SILVER)
+            phase_server.wait(timeout=6)
+            _tick_bar(45,  " ", SILVER)
+            phase_download.wait(timeout=20)
+            _tick_bar(80,  " ", SILVER)
+            phase_upload.wait(timeout=20)
+            _tick_bar(100, " ", SILVER)
+
+        threading.Thread(target=_animate, daemon=True).start()
+
+        def run():
+            try:
+                import speedtest as _st
+                s = _st.Speedtest(secure=True)
+                
+                s.get_best_server()
+                phase_server.set()
+
+                dl = s.download(threads=2) / 1_000_000
+                phase_download.set()
+                self.after(0, lambda: self._speed_tiles["download"].config(
+                    text=f"{dl:.1f}",
+                    fg=SILVER if dl >= 10 else SILVER if dl >= 2 else RED))
+
+                ul = s.upload(threads=2, pre_allocate=False) / 1_000_000
+                phase_upload.set()
+                self.after(0, lambda: self._speed_tiles["upload"].config(
+                    text=f"{ul:.1f}",
+                    fg=SILVER if ul >= 5 else SILVER if ul >= 1 else RED))
+
+                ping_ms = s.results.ping
+                self.after(0, lambda: self._speed_tiles["ping"].config(
+                    text=f"{ping_ms:.0f}",
+                    fg=SILVER if ping_ms <= 30 else SILVER if ping_ms <= 80 else RED))
+
+                ts  = datetime.datetime.now().strftime("%H:%M:%S")
+                srv = s.results.server.get("name", "")
+                cty = s.results.server.get("country", "")
+                self.after(0, lambda: self._speed_status.config(
+                    text=f"✓  Last tested {ts}  —  {srv}, {cty}", fg=GREEN))
+
+            except ImportError:
+                phase_server.set(); phase_download.set(); phase_upload.set()
+                self._spin_stop = True
+                self.after(0, lambda: self._speed_status.config(
+                    text="speedtest-cli not installed. Run: pip install speedtest-cli",
+                    fg=RED))
+            except Exception as e:
+                phase_server.set(); phase_download.set(); phase_upload.set()
+                self._spin_stop = True
+                self.after(0, lambda: self._speed_status.config(
+                    text=f"Error: {e}", fg=RED))
+            finally:
+                self._prog_stop = False
+                self._test_running = False
+                self.after(0, self._restore_btn)
+                self.after(600, self._reset_prog_bar)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _reset_prog_bar(self):
+        if not hasattr(self, "_prog_bar") or not self._prog_bar.winfo_exists():
+            return
+        pct = getattr(self, "_prog_pct", 0)
+        if pct <= 0:
+            self._draw_prog(0, CARD_BG)
+            return
+        self._prog_pct = max(0, pct - 8)
+        self._draw_prog(self._prog_pct, CARD_BG)
+        self.after(15, self._reset_prog_bar)
+
+    def _restore_btn(self):
+        self._run_btn.config(state="normal", text="▶  RUN TEST", fg=SILVER, bg=BG)
+        self._run_btn_wrap.config(bg=SILVER)
+
+    def _build(self):
+        # ── Title row ──
+        hdr = tk.Frame(self, bg=BG)
+        hdr.pack(fill="x", padx=24, pady=(20, 0))
+        tk.Label(hdr, text="NETWORK", font=("Consolas", 17, "bold"),
+                fg=TEXT, bg=BG).pack(side="left")
+        tk.Label(hdr, text="OVERVIEW", font=("Consolas", 17),
+                fg=TEXT_DIM, bg=BG).pack(side="left")
+        tk.Frame(self, bg=BORDER, height=1).pack(fill="x", padx=24, pady=(10, 0))
+
+        # ── Speed test card ──
+        spd = tk.Frame(self, bg=CARD_BG,
+                    highlightbackground=BORDER, highlightthickness=1)
+        spd.pack(fill="x", padx=24, pady=(14, 0))
+        spd.configure(padx=20, pady=16)
+        self._spd_frame = spd
+
+        top_row = tk.Frame(spd, bg=CARD_BG)
+        top_row.pack(fill="x")
+        tk.Label(top_row, text="INTERNET SPEED TEST",
+                font=("Consolas", 9, "bold"), fg=TEXT, bg=CARD_BG).pack(side="left")
+
+        self._run_btn_wrap = tk.Frame(top_row, bg=SILVER, padx=1, pady=1)
+        self._run_btn_wrap.pack(side="right")
+        self._run_btn = tk.Button(
+            self._run_btn_wrap, text="▶  RUN TEST",
+            font=("Consolas", 8, "bold"), fg=SILVER, bg=BG,
+            activeforeground=BG, activebackground=SILVER,
+            relief="flat", bd=0, padx=12, pady=4, cursor="hand2",
+            command=self._run_speed_test)
+        self._run_btn.pack()
+
+        tk.Frame(spd, bg=BORDER, height=1).pack(fill="x", pady=(12, 12))
+
+        tiles = tk.Frame(spd, bg=CARD_BG)
+        tiles.pack(fill="x")
+        self._speed_tiles = {}
+        for i, (key, label, unit) in enumerate([
+            ("download", "DOWNLOAD",  "MBPS"),
+            ("upload",   "UPLOAD",    "MBPS"),
+            ("ping",     "PING",      "MS"),
+        ]):
+            col = tk.Frame(tiles, bg=CARD_BG)
+            col.pack(side="left", expand=True)
+            if i > 0:
+                tk.Frame(tiles, bg=BORDER, width=1).pack(side="left", fill="y")
+                col = tk.Frame(tiles, bg=CARD_BG)
+                col.pack(side="left", expand=True)
+            tk.Label(col, text=label, font=("Consolas", 7),
+                    fg=TEXT_DIM, bg=CARD_BG).pack()
+            val_lbl = tk.Label(col, text="—",
+                            font=("Consolas", 22, "bold"), fg=TEXT, bg=CARD_BG)
+            val_lbl.pack()
+            tk.Label(col, text=unit, font=("Consolas", 8),
+                    fg=TEXT_DIM, bg=CARD_BG).pack()
+            self._speed_tiles[key] = val_lbl
+
+        self._speed_status = tk.Label(spd, text=" ",
+                                    font=("Consolas", 7), fg=TEXT_DIM, bg=CARD_BG)
+        self._speed_status.pack(anchor="w", pady=(10, 0))
+
+        # ── Host summary bar ──
+        sumbar = tk.Frame(self, bg=BG)
+        sumbar.pack(fill="x", padx=24, pady=(14, 0))
+        self._sum_labels = {}
+        for key, label, color in [
+            ("up",   "UP",   GREEN),
+            ("warn", "WARN", YELLOW),
+            ("down", "DOWN", RED),
+        ]:
+            cell = tk.Frame(sumbar, bg=CARD_BG,
+                            highlightbackground=BORDER, highlightthickness=1,
+                            padx=18, pady=10)
+            cell.pack(side="left", expand=True, fill="x",
+                    padx=(0, 8) if key != "down" else 0)
+            tk.Label(cell, text=label, font=("Consolas", 7),
+                    fg=TEXT_DIM, bg=CARD_BG).pack()
+            v = tk.Label(cell, text="—",
+                        font=("Consolas", 20, "bold"), fg=color, bg=CARD_BG)
+            v.pack()
+            self._sum_labels[key] = v
+
+        # ── Monthly Report (5 horizontal cards) ──
+                # ── Monthly Report (5 horizontal cards) ──
+        monthly_card = tk.Frame(self, bg=CARD_BG,
+                                highlightbackground=BORDER, highlightthickness=1)
+        monthly_card.pack(fill="both", expand=True, padx=24, pady=(14, 20))
+
+        ghdr = tk.Frame(monthly_card, bg=CARD_BG, padx=16, pady=10)
+        ghdr.pack(fill="x")
+
+        start_date, end_date = self._get_last_month_range()
+        month_name = start_date.strftime("%B %Y")
+
+        # Determine if we're in light theme for better contrast
+        is_light = is_light_color(BG)
+        header_color = TEXT if not is_light else "#1a1a2e"  # Dark text for light themes
+        
+        tk.Label(ghdr, text=f"PAST MONTH ISSUE REPORT — {month_name.upper()}",
+                font=("Consolas", 12, "bold"), fg=header_color, bg=CARD_BG).pack(side="left")
+        self._stats_ts = tk.Label(ghdr, text="",
+                                font=("Consolas", 7), fg=TEXT_DIM, bg=CARD_BG)
+        self._stats_ts.pack(side="right")
+        tk.Frame(monthly_card, bg=BORDER, height=1).pack(fill="x")
+
+        cards_frame = tk.Frame(monthly_card, bg=CARD_BG, padx=16, pady=16)
+        cards_frame.pack(fill="both", expand=True)
+
+        for i in range(5):
+            cards_frame.columnconfigure(i, weight=1)
+        cards_frame.rowconfigure(0, weight=1)
+        
+        # Use theme-appropriate colors for stat cards
+        stat_color = "#1a1a2e" if is_light else "#C0C0C0"  # Dark text for light, silver for dark
+        stat_defs = [
+            ("total_failures", "TOTAL FAILURES", stat_color, "simple"),
+            ("most_failing_ip", "HIGHEST FAILURE RATE", stat_color, "double"),
+            ("unique_failing_ips", "AFFECTED HOST/S", stat_color, "simple"),
+            ("most_failing_server", "LEAST RELIABLE", stat_color, "double"),
+            ("avg_failures_per_day", "AVG FAILURES/DAY", stat_color, "simple"),
+        ]
+        
+        self._stat_labels = {}
+
+        for i, (key, title, color, card_type) in enumerate(stat_defs):
+            card = tk.Frame(cards_frame, bg=CARD_BG,
+                        highlightbackground=BORDER, highlightthickness=1)
+            card.grid(row=0, column=i, sticky="nsew", padx=4, pady=4)
+            
+            inner = tk.Frame(card, bg=CARD_BG)
+            inner.pack(fill="both", expand=True, padx=12, pady=16)
+            
+            # Title at top - use appropriate color based on theme
+            title_fg = "#1a1a2e" if is_light else TEXT
+            tk.Label(inner, text=title, font=("Consolas", 9, "bold"),
+                    fg=title_fg, bg=CARD_BG).pack()
+            tk.Frame(inner, bg=BORDER, height=1).pack(fill="x", pady=(6, 12))
+            
+            # Value color based on theme
+            value_color = "#1a1a2e" if is_light else color
+            
+            if card_type == "double":
+                content = tk.Frame(inner, bg=CARD_BG)
+                content.pack(fill="both", expand=True)
+
+                tk.Frame(content, bg=CARD_BG, height=20).pack()
+
+                count_lbl = tk.Label(content, text="—",
+                                    font=("Consolas", 36, "bold"),
+                                    fg=value_color, bg=CARD_BG)
+                count_lbl.pack(expand=True)
+
+                tk.Frame(content, bg=CARD_BG, height=16).pack()
+
+                # Name label color based on theme
+                name_fg = TEXT_DIM if not is_light else "#4a4a6e"
+                name_lbl = tk.Label(content, text="—",
+                                font=("Consolas", 8),
+                                fg=name_fg, bg=CARD_BG,
+                                wraplength=120, justify="center")
+                name_lbl.place(relx=0.5, rely=1.0, anchor="s", y=-2)
+
+                self._stat_labels[f"{key}_count"] = count_lbl
+                self._stat_labels[f"{key}_name"] = name_lbl
+            else:
+                content = tk.Frame(inner, bg=CARD_BG)
+                content.pack(fill="both", expand=True)
+
+                tk.Frame(content, bg=CARD_BG, height=20).pack()
+
+                val_lbl = tk.Label(content, text="—",
+                                font=("Consolas", 36, "bold"),
+                                fg=value_color, bg=CARD_BG)
+                val_lbl.pack(expand=True)
+
+                tk.Frame(content, bg=CARD_BG, height=16).pack()
+
+                self._stat_labels[key] = val_lbl
+        
+        self._stat_cards = [cards_frame.grid_slaves(row=0, column=i)[0] for i in range(5)]
+        
+        def update_card_heights(event=None):
+            if hasattr(self, '_stat_cards') and self._stat_cards:
+                cards_frame.update_idletasks()
+                frame_h = cards_frame.winfo_height()
+                if frame_h > 100:
+                    target_h = frame_h - 8
+                    for card in self._stat_cards:
+                        card.configure(height=target_h)
+
+        cards_frame.bind("<Configure>", update_card_heights)
+        monthly_card.bind("<Configure>", update_card_heights)
+
+
+        self.update_idletasks()
+        update_card_heights()
+        self.after(50, update_card_heights)
+        self.after(200, update_card_heights)
+
+    def refresh_summary(self):
+        up = sum(1 for c in self.app.cards
+                   if c.host.get("ip") and c._cur_sev == "green")
+        warn = sum(1 for c in self.app.cards
+                   if c.host.get("ip") and c._cur_sev in
+                   ("yellow_blink", "yellow", "orange_blink"))
+        down = sum(1 for c in self.app.cards
+                   if c.host.get("ip") and c._cur_sev == "red_blink")
+
+        for row in self.app.misc.rows:
+            if not row.entry.get("ip"):
+                continue
+            txt = row.status_lbl.cget("text")
+            if txt in ("OK",):
+                up += 1
+            elif txt in ("DOWN",):
+                down += 1
+            elif txt in ("...", "—"):
+                pass
+            else:
+                warn += 1
+
+        self._sum_labels["up"].config(text=str(up))
+        self._sum_labels["warn"].config(text=str(warn))
+        self._sum_labels["down"].config(text=str(down))
+        
+        self._update_stats()
+            
 # ── Scrollable Frame ─────────────────────────────────────────────
 class ScrollableFrame(tk.Frame):
     def __init__(self, parent, **kw):
         super().__init__(parent, **kw)
         style = ttk.Style()
         style.theme_use("default")
+        trough = darken_color(BG, 0.2) if is_light_color(BG) else "#060810"
         style.configure("Dark.Vertical.TScrollbar",
-                        gripcount=0, background=ACCENT, darkcolor=BG, lightcolor=BG,
-                        troughcolor="#060810", bordercolor=BG,
-                        arrowcolor=ACCENT, arrowsize=13)
+            gripcount=0, background=ACCENT, darkcolor=BG, lightcolor=BG,
+            troughcolor=trough, bordercolor=BG,
+            arrowcolor=ACCENT, arrowsize=13)
         style.map("Dark.Vertical.TScrollbar",
                   background=[("active", "#79b8ff"), ("!active", ACCENT)])
 
@@ -3476,6 +4149,136 @@ class ScrollableFrame(tk.Frame):
 
 # ── Main App ─────────────────────────────────────────────────────
 class PingApp(tk.Tk):
+
+    def _show_splash(self):
+        """Create a compact, elegant splash screen, run progress animation, then show main window."""
+        splash = tk.Toplevel()
+        splash.title("")
+        splash.configure(bg=BG)
+        splash.overrideredirect(True)          # No title bar or borders
+        splash.attributes("-topmost", True)    # Stay above everything
+
+        # Smaller dimensions
+        w, h = 380, 400
+        sw = splash.winfo_screenwidth()
+        sh = splash.winfo_screenheight()
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        splash.geometry(f"{w}x{h}+{x}+{y}")
+
+        # Outer card with subtle border
+        outer = tk.Frame(splash, bg=CARD_BG, highlightbackground=BORDER, highlightthickness=1)
+        outer.pack(fill="both", expand=True, padx=6, pady=6)
+
+        # Main content area with padding
+        content = tk.Frame(outer, bg=CARD_BG)
+        content.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Icon (smaller, 96x96)
+        start_icon_img = None
+        try:
+            start_icon_img = Image.open(START_ICON_PATH).resize((96, 96), Image.LANCZOS)
+        except Exception:
+            start_icon_img = self._create_question_icon(96)
+        self._splash_icon = ImageTk.PhotoImage(start_icon_img)
+        tk.Label(content, image=self._splash_icon, bg=CARD_BG).pack(pady=(20, 16))
+
+        # Title
+        title1 = _branding.get("title_part1", "WELCOME")
+        title2 = _branding.get("title_part2", "USER")
+        tk.Label(content, text=f"{title1} {title2}",
+                font=("Consolas", 18, "bold"), fg=SILVER, bg=CARD_BG).pack()
+        tk.Label(content, text=" ",
+                font=("Consolas", 10), fg=TEXT_DIM, bg=CARD_BG).pack(pady=(0, 50))
+
+        # Progress container
+        prog_container = tk.Frame(content, bg=CARD_BG)
+        prog_container.pack(pady=(10, 6))
+
+        # Left bracket (styled)
+        tk.Label(prog_container, text="[", font=("Consolas", 18), fg=SILVER, bg=CARD_BG).pack(side="left")
+
+        # Segment container
+        seg_container = tk.Frame(prog_container, bg=CARD_BG)
+        seg_container.pack(side="left")
+
+        # 30 segments for a smoother, shorter bar (fits smaller width)
+        self._splash_segments = []
+        for _ in range(15):
+            seg = tk.Label(seg_container, text="|", font=("Consolas", 15), fg=BORDER, bg=CARD_BG)
+            seg.pack(side="left")
+            self._splash_segments.append(seg)
+
+        tk.Label(prog_container, text="]", font=("Consolas", 18), fg=SILVER, bg=CARD_BG).pack(side="left")
+
+        # Percentage label
+
+
+        self._splash_progress = 0
+        self._splash = splash
+        self._animate_splash_progress()
+
+    def _animate_splash_progress(self):
+        if not hasattr(self, "_splash") or not self._splash.winfo_exists():
+            return
+
+        if self._splash_progress < 100:
+            self._splash_progress += 2
+            if self._splash_progress > 100:
+                self._splash_progress = 100
+
+            filled = int((self._splash_progress / 100) * len(self._splash_segments))
+            for i, seg in enumerate(self._splash_segments):
+                if i < filled:
+                    # Gradient colors based on progress
+                    if self._splash_progress < 30:
+                        seg.config(fg=SILVER)
+                    elif self._splash_progress < 60:
+                        seg.config(fg=SILVER)
+                    elif self._splash_progress < 85:
+                        seg.config(fg=SILVER)
+                    else:
+                        seg.config(fg=SILVER)
+                else:
+                    seg.config(fg=BORDER)
+
+
+            self.after(50, self._animate_splash_progress)
+        else:
+            # Progress complete – fade out splash and show main window
+            self._fade_out_splash()
+
+    def _fade_out_splash(self, alpha=1.0):
+        if not hasattr(self, "_splash") or not self._splash.winfo_exists():
+            return
+        alpha -= 0.05
+        if alpha > 0:
+            self._splash.attributes("-alpha", alpha)
+            self.after(20, lambda: self._fade_out_splash(alpha))
+        else:
+            self._splash.destroy()
+            delattr(self, "_splash")
+            # Now show the main application window
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+
+            
+    def _switch_panel(self, name):
+        if name == self._active_panel:
+            return
+        self._active_panel = name
+        if name == "home":
+            self._network_panel.pack_forget()
+            self._home_panel_widget.pack(fill="both", expand=True)
+            self._home_panel_widget.refresh_summary()
+            self._tab_home_btn.config(fg="#ffffff")           # Active = white
+            self._tab_net_btn.config(fg=SILVER)  # Inactive = gray
+        else:
+            self._home_panel_widget.pack_forget()
+            self._network_panel.pack(fill="both", expand=True)
+            self._tab_net_btn.config(fg="#ffffff")           # Active = white
+            self._tab_home_btn.config(fg=SILVER) # Inactive = gray
 
     def _console_reset_data(self):
         self._console_write("WARNING: This will DELETE the entire assets/ directory!\n", RED)
@@ -3571,19 +4374,86 @@ class PingApp(tk.Tk):
                 save_geometry(x, y, w, h)
 
     def _restart_app(self):
+        """Safely restart the application."""
         self._running = False
+        
+        # Cancel all scheduled jobs
         if self._auto_job:
             self.after_cancel(self._auto_job)
+            self._auto_job = None
+        
+        # Suspend all cards and misc items
         self._suspend_all()
         
-        # Schedule restart after a short delay
-        self.after(100, self._do_restart)
+        # Get the restart command
+        if getattr(sys, 'frozen', False):
+            python = sys.executable
+            args = [python] + sys.argv
+        else:
+            python = sys.executable
+            args = [python] + sys.argv
+        
+        # Start the new process
+        if sys.platform == 'win32':
+            subprocess.Popen(
+                args,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL
+            )
+        else:
+            # On Unix/Linux/Mac
+            subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        
+        # Force exit immediately - this kills the current process
+        self.quit()
+        self.destroy()
+        os._exit(0)  # This forcefully terminates the process
 
     def _do_restart(self):
-        import subprocess, sys
-        subprocess.Popen([sys.executable] + sys.argv)
+        """Actually restart the application."""
+        import subprocess
+        import sys
+        import os
+        import signal
+        
+        # Get the current script path
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            python = sys.executable
+            args = [python] + sys.argv
+        else:
+            # Running as script
+            python = sys.executable
+            args = [python] + sys.argv
+        
+        # Close the current instance
         self.quit()
-        sys.exit(0)
+        
+        # Force destroy the Tk instance
+        self.destroy()
+        
+        # Start new process
+        if sys.platform == 'win32':
+            # On Windows, use CREATE_NEW_PROCESS_GROUP to ensure clean separation
+            subprocess.Popen(
+                args,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        else:
+            # On Unix, use double fork to detach
+            if os.fork() == 0:
+                os.setsid()
+                if os.fork() == 0:
+                    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    os._exit(0)
+                os._exit(0)
+        
+        # Exit the current process
+        os._exit(0)
 
     def _open_console_modal(self):
         # If console already exists, raise it
@@ -3965,91 +4835,396 @@ class PingApp(tk.Tk):
             pass
 
     def _apply_theme(self, name, skip_repaint=False):
-        global BG, CARD_BG, BORDER, _active_theme
+        global BG, CARD_BG, BORDER, TEXT, TEXT_DIM, _active_theme, GREEN, YELLOW, ORANGE, RED, ACCENT, SILVER
+        global GREEN_DIM, YELLOW_DIM, ORANGE_DIM, RED_DIM, ACCENT_DIM, CARD_RED, CARD_ORANGE, CARD_YELLOW
+        global BLINK_FAST, BLINK_MILD
+        
         t = THEMES.get(name, THEMES["OBSIDIAN"])
         BG      = t["BG"]
         CARD_BG = t["CARD_BG"]
         BORDER  = t["BORDER"]
+        
+        # Auto-invert text and status colors based on background brightness
+        if is_light_color(BG):
+            # Light theme - use dark colors
+            TEXT = "#1a1a2e"
+            TEXT_DIM = "#4a4a6e"
+            GREEN = "#1a8a3a"
+            YELLOW = "#b87a1a"
+            ORANGE = "#cc6a1a"
+            RED = "#cc1a1a"
+            ACCENT = "#1a5a9e"
+            SILVER = "#4a4a6e"
+            
+            # Dim backgrounds for blinking (lighter versions)
+            GREEN_DIM = lighten_color(GREEN, 0.6)
+            YELLOW_DIM = lighten_color(YELLOW, 0.6)
+            ORANGE_DIM = lighten_color(ORANGE, 0.6)
+            RED_DIM = lighten_color(RED, 0.6)
+            ACCENT_DIM = lighten_color(ACCENT, 0.6)
+            
+            # Card tint colors for blinking (light backgrounds)
+            CARD_RED = lighten_color(RED, 0.85)
+            CARD_ORANGE = lighten_color(ORANGE, 0.85)
+            CARD_YELLOW = lighten_color(YELLOW, 0.85)
+            
+            # Blink speeds remain the same
+            BLINK_FAST = 320
+            BLINK_MILD = 720
+        else:
+            # Dark theme - use light colors (original)
+            TEXT = "#cdd9e5"
+            TEXT_DIM = "#637080"
+            GREEN = "#3fb950"
+            YELLOW = "#d29922"
+            ORANGE = "#e0823d"
+            RED = "#f85149"
+            ACCENT = "#58a6ff"
+            SILVER = "#C0C0C0"
+            
+            # Dim backgrounds for blinking (darker versions)
+            GREEN_DIM = "#0b2114"
+            YELLOW_DIM = "#261e07"
+            ORANGE_DIM = "#2a1508"
+            RED_DIM = "#2a0d0c"
+            ACCENT_DIM = "#0c1d3a"
+            
+            # Card tint colors for blinking (dark backgrounds)
+            CARD_RED = "#1a0a09"
+            CARD_ORANGE = "#1a0e06"
+            CARD_YELLOW = "#141006"
+        
         _active_theme = name
+        save_theme(name)
 
-        save_theme(name)   # persist theme
+        if skip_repaint or not getattr(self, "_initialized", False):
+            return
+        
+        # Re-apply titlebar color when theme changes
+        self._dark_titlebar()
+        if hasattr(self, '_console_window') and self._console_window.winfo_exists():
+            self._dark_titlebar_for(self._console_window)
 
-        # If this is the very first call (during __init__), skip restart.
-        # The UI hasn't been built yet – we just update the globals.
+        # Update SEV_STYLE with new colors
+        global SEV_STYLE
+        SEV_STYLE = {
+            "green":        (GREEN,  GREEN_DIM,  None),
+            "yellow":       (YELLOW, YELLOW_DIM, None),
+            "yellow_blink": (YELLOW, YELLOW_DIM, BLINK_MILD),
+            "orange_blink": (ORANGE, ORANGE_DIM, BLINK_MILD),
+            "red_blink":    (RED,    RED_DIM,    BLINK_FAST),
+        }
+
         if skip_repaint or not getattr(self, "_initialized", False):
             return
 
-        # For all other theme changes (user interaction), restart the app
-        self._restart_app()
+        if getattr(self, "_restarting", False):
+            return
+        self._restarting = True
+        
+        self._set_status("APPLYING THEME, RESTARTING...", ACCENT)
+        self.update_idletasks()
+        
+        self.after(300, self._perform_restart)
+
+    def _perform_restart(self):
+        """Actually perform the restart."""
+        # Get the restart command
+        if getattr(sys, 'frozen', False):
+            python = sys.executable
+            args = [python] + sys.argv
+        else:
+            python = sys.executable
+            args = [python] + sys.argv
+        
+        # Start new process
+        if sys.platform == 'win32':
+            subprocess.Popen(
+                args,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL
+            )
+        else:
+            subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        
+        # Force immediate exit - this ensures the old window closes
+        self.quit()
+        self.destroy()
+        os._exit(0)  # Force process termination
 
 
 
     def _open_theme_modal(self):
         modal = tk.Toplevel(self)
         modal.title("")
-        modal.configure(bg=BG)
-        modal.resizable(False, False)
+        # Use NEUTRAL colors independent of current theme
+        NEUTRAL_BG = "#1e1e2e"      # Dark neutral background
+        NEUTRAL_CARD = "#2a2a3a"    # Slightly lighter card background
+        NEUTRAL_BORDER = "#3a3a4a"  # Subtle border
+        NEUTRAL_TEXT = "#e0e0e0"    # Light text
+        NEUTRAL_TEXT_DIM = "#a0a0b0" # Dimmed text
+        NEUTRAL_HOVER = "#4a4a5a"   # Hover state
+        
+        modal.configure(bg=NEUTRAL_BG)
+        modal.resizable(True, True)
         modal.transient(self)
         modal.grab_set()
-        w, h = 620, 400
+        
+        # WIDER window to accommodate more themes comfortably
+        w, h = 950, 650  # Increased width from 750 to 950
         x = self.winfo_rootx() + (self.winfo_width() - w) // 2
         y = self.winfo_rooty() + (self.winfo_height() - h) // 2
         modal.geometry(f"{w}x{h}+{x}+{y}")
-        modal.configure(highlightbackground=BORDER, highlightthickness=0)
+        modal.configure(highlightbackground=NEUTRAL_BORDER, highlightthickness=0)
+        modal.minsize(1000, 550)  # Increased min width
         self.after(100, lambda: self._dark_titlebar_for(modal))
 
-        card = tk.Frame(modal, bg=CARD_BG, padx=20, pady=16)
+        card = tk.Frame(modal, bg=NEUTRAL_CARD, padx=24, pady=20)
         card.pack(fill="both", expand=True)
 
-        tk.Label(card, text="THEME", font=("Consolas", 11, "bold"),
-                 fg=SILVER, bg=CARD_BG).pack(anchor="w")
-        tk.Frame(card, bg=BORDER, height=1).pack(fill="x", pady=(8, 14))
+        tk.Label(card, text="THEMES", font=("Consolas", 13, "bold"),
+                fg=NEUTRAL_TEXT, bg=NEUTRAL_CARD).pack(anchor="w")
+        tk.Label(card, text="Click any theme to apply (app will restart)", 
+                font=("Consolas", 8), fg=NEUTRAL_TEXT_DIM, bg=NEUTRAL_CARD).pack(anchor="w")
+        tk.Frame(card, bg=NEUTRAL_BORDER, height=1).pack(fill="x", pady=(8, 14))
 
-        grid_frame = tk.Frame(card, bg=CARD_BG)
-        grid_frame.pack(fill="both", expand=True)
+        # Create canvas with INVISIBLE scrollbar
+        canvas_frame = tk.Frame(card, bg=NEUTRAL_CARD)
+        canvas_frame.pack(fill="both", expand=True)
+        
+        canvas = tk.Canvas(canvas_frame, bg=NEUTRAL_CARD, highlightthickness=0)
+        # Create scrollbar but don't pack it (invisible but functional)
+        scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=canvas.yview)
+        # Don't pack the scrollbar - keep it invisible
+        
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        
+        # Inner frame for theme grid
+        grid_frame = tk.Frame(canvas, bg=NEUTRAL_CARD)
+        canvas_window = canvas.create_window((0, 0), window=grid_frame, anchor="nw")
+        
+        def configure_scroll_region(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        
+        grid_frame.bind("<Configure>", configure_scroll_region)
+        
+        def on_canvas_configure(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+        
+        canvas.bind("<Configure>", on_canvas_configure)
+        
+        # Mouse wheel support (works without visible scrollbar)
+        def on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        canvas.bind("<MouseWheel>", on_mousewheel)
+        grid_frame.bind("<MouseWheel>", on_mousewheel)
+        modal.bind("<MouseWheel>", on_mousewheel)
 
-        COLS = 3
-        ROWS_PER_COL = 7
-        theme_names = list(THEMES.keys())
+        # Organize themes into categories
+                # Organize themes into categories
+        dark_themes = []
+        lite_themes = []
+        special_themes = []
 
-        for idx, name in enumerate(theme_names):
+        # Define which themes are lite versions
+        lite_theme_names = ["SAKURA", "STARDUST", "AQUA", "JADE", "LAVENDER", "RUBY", 
+                            "AMBER", "MIST", "STONE", "COTTON"]
+
+        # Define special themes
+        special_theme_names = ["LEGACY"]
+
+        for name in THEMES.keys():
+            if name in lite_theme_names:
+                lite_themes.append(name)
+            elif name in special_theme_names:
+                special_themes.append(name)
+            else:
+                dark_themes.append(name)
+        
+        # Create sections - INCREASED COLS for wider layout
+        row = 0
+        COLS = 5  # Changed from 4 to 5 columns for wider layout
+        
+        # Dark Themes Section
+        section_label = tk.Label(grid_frame, text="DARK THEMES", 
+                                font=("Consolas", 11, "bold"),
+                                fg="#58a6ff", bg=NEUTRAL_CARD)
+        section_label.grid(row=row, column=0, columnspan=COLS, sticky="w", pady=(5, 12))
+        row += 1
+        
+        for idx, name in enumerate(dark_themes):
             colors = THEMES[name]
-            col = idx // ROWS_PER_COL
-            row = idx % ROWS_PER_COL
-
-            cell = tk.Frame(grid_frame, bg=CARD_BG)
-            cell.grid(row=row, column=col, sticky="w", padx=(0, 20), pady=3)
-
-            swatch_row = tk.Frame(cell, bg=CARD_BG)
-            swatch_row.pack(side="left", padx=(0, 8))
+            col = idx % COLS
+            r = row + (idx // COLS)
+            
+            cell = tk.Frame(grid_frame, bg=NEUTRAL_CARD)
+            cell.grid(row=r, column=col, sticky="w", padx=(0, 20), pady=4)
+            
+            # Color swatches
+            swatch_row = tk.Frame(cell, bg=NEUTRAL_CARD)
+            swatch_row.pack(side="left", padx=(0, 10))
             for col_hex in colors.values():
-                tk.Frame(swatch_row, bg=col_hex, width=14, height=14,
-                         highlightbackground=BORDER, highlightthickness=1
-                         ).pack(side="left", padx=1)
-
+                tk.Frame(swatch_row, bg=col_hex, width=18, height=18,
+                        highlightbackground=NEUTRAL_BORDER, highlightthickness=1
+                        ).pack(side="left", padx=1)
+            
             is_active = (name == _active_theme)
+            display_name = name.title()
             btn = tk.Button(
                 cell,
-                text=f"{'▶ ' if is_active else '  '}{name}",
-                font=("Consolas", 9, "bold"),
-                fg=SILVER if is_active else TEXT_DIM,
-                bg=CARD_BG,
-                activeforeground=CARD_BG,
-                activebackground=CARD_BG,
+                text=f"{'▶ ' if is_active else '  '}{display_name}",
+                font=("Consolas", 9),
+                fg=NEUTRAL_TEXT if is_active else NEUTRAL_TEXT_DIM,
+                bg=NEUTRAL_CARD,
+                activeforeground=NEUTRAL_TEXT,
+                activebackground=NEUTRAL_HOVER,
                 relief="flat", bd=0,
                 cursor="hand2",
                 anchor="w",
-                width=12,
+                width=16,  # Slightly wider for better readability
                 command=lambda n=name: (self._apply_theme(n), modal.destroy())
             )
             btn.pack(side="left")
-
-            def btn_enter(e, b=btn): b.config(fg=SILVER)
-            def btn_leave(e, b=btn, n=name): b.config(fg=SILVER if n == _active_theme else TEXT_DIM)
+            
+            def btn_enter(e, b=btn): 
+                b.config(fg=NEUTRAL_TEXT, bg=NEUTRAL_HOVER)
+            def btn_leave(e, b=btn, n=name): 
+                b.config(fg=NEUTRAL_TEXT if n == _active_theme else NEUTRAL_TEXT_DIM, 
+                        bg=NEUTRAL_CARD)
+            btn.bind("<Enter>", btn_enter)
+            btn.bind("<Leave>", btn_leave)
+        
+        row += (len(dark_themes) + COLS - 1) // COLS
+        
+        # Separator
+        separator = tk.Frame(grid_frame, bg=NEUTRAL_BORDER, height=1)
+        separator.grid(row=row, column=0, columnspan=COLS, sticky="ew", pady=(20, 15))
+        row += 1
+        
+        # Lite Themes Section
+        section_label2 = tk.Label(grid_frame, text="LITE THEMES (20% LIGHTER)", 
+                                font=("Consolas", 11, "bold"),
+                                fg="#d29922", bg=NEUTRAL_CARD)
+        section_label2.grid(row=row, column=0, columnspan=COLS, sticky="w", pady=(5, 12))
+        row += 1
+        
+        for idx, name in enumerate(lite_themes):
+            colors = THEMES[name]
+            col = idx % COLS
+            r = row + (idx // COLS)
+            
+            cell = tk.Frame(grid_frame, bg=NEUTRAL_CARD)
+            cell.grid(row=r, column=col, sticky="w", padx=(0, 20), pady=4)
+            
+            # Color swatches
+            swatch_row = tk.Frame(cell, bg=NEUTRAL_CARD)
+            swatch_row.pack(side="left", padx=(0, 10))
+            for col_hex in colors.values():
+                tk.Frame(swatch_row, bg=col_hex, width=18, height=18,
+                        highlightbackground=NEUTRAL_BORDER, highlightthickness=1
+                        ).pack(side="left", padx=1)
+            
+            is_active = (name == _active_theme)
+            display_name = name.title()
+            btn = tk.Button(
+                cell,
+                text=f"{'▶ ' if is_active else '  '}{display_name}",
+                font=("Consolas", 9),
+                fg=NEUTRAL_TEXT if is_active else NEUTRAL_TEXT_DIM,
+                bg=NEUTRAL_CARD,
+                activeforeground=NEUTRAL_TEXT,
+                activebackground=NEUTRAL_HOVER,
+                relief="flat", bd=0,
+                cursor="hand2",
+                anchor="w",
+                width=16,
+                command=lambda n=name: (self._apply_theme(n), modal.destroy())
+            )
+            btn.pack(side="left")
+            
+            def btn_enter(e, b=btn): 
+                b.config(fg=NEUTRAL_TEXT, bg=NEUTRAL_HOVER)
+            def btn_leave(e, b=btn, n=name): 
+                b.config(fg=NEUTRAL_TEXT if n == _active_theme else NEUTRAL_TEXT_DIM, 
+                        bg=NEUTRAL_CARD)
             btn.bind("<Enter>", btn_enter)
             btn.bind("<Leave>", btn_leave)
 
-        modal.bind("<Escape>", lambda _: modal.destroy())
+
+        row += (len(lite_themes) + COLS - 1) // COLS
+        
+        # Special Themes Section (if any)
+        if special_themes:
+            # Separator
+            separator2 = tk.Frame(grid_frame, bg=NEUTRAL_BORDER, height=1)
+            separator2.grid(row=row, column=0, columnspan=COLS, sticky="ew", pady=(20, 15))
+            row += 1
+            
+            section_label3 = tk.Label(grid_frame, text="SPECIAL", 
+                                    font=("Consolas", 11, "bold"),
+                                    fg="#d4af37", bg=NEUTRAL_CARD)
+            section_label3.grid(row=row, column=0, columnspan=COLS, sticky="w", pady=(5, 12))
+            row += 1
+            
+            for idx, name in enumerate(special_themes):
+                colors = THEMES[name]
+                col = idx % COLS
+                r = row + (idx // COLS)
+                
+                cell = tk.Frame(grid_frame, bg=NEUTRAL_CARD)
+                cell.grid(row=r, column=col, sticky="w", padx=(0, 20), pady=4)
+                
+                # Color swatches
+                swatch_row = tk.Frame(cell, bg=NEUTRAL_CARD)
+                swatch_row.pack(side="left", padx=(0, 10))
+                for col_hex in colors.values():
+                    tk.Frame(swatch_row, bg=col_hex, width=18, height=18,
+                            highlightbackground=NEUTRAL_BORDER, highlightthickness=1
+                            ).pack(side="left", padx=1)
+                
+                is_active = (name == _active_theme)
+                display_name = name.title()
+                btn = tk.Button(
+                    cell,
+                    text=f"{'⭐ ' if is_active else '   '}{display_name}",
+                    font=("Consolas", 9, "bold"),
+                    fg="#d4af37" if is_active else NEUTRAL_TEXT_DIM,
+                    bg=NEUTRAL_CARD,
+                    activeforeground="#d4af37",
+                    activebackground=NEUTRAL_HOVER,
+                    relief="flat", bd=0,
+                    cursor="hand2",
+                    anchor="w",
+                    width=16,
+                    command=lambda n=name: (self._apply_theme(n), modal.destroy())
+                )
+                btn.pack(side="left")
+                
+                def btn_enter(e, b=btn): 
+                    b.config(fg="#d4af37", bg=NEUTRAL_HOVER)
+                def btn_leave(e, b=btn, n=name): 
+                    b.config(fg="#d4af37" if n == _active_theme else NEUTRAL_TEXT_DIM, 
+                            bg=NEUTRAL_CARD)
+                btn.bind("<Enter>", btn_enter)
+                btn.bind("<Leave>", btn_leave)
+
+    def _create_question_icon(self, size=256):
+        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        from PIL import ImageDraw, ImageFont
+        draw = ImageDraw.Draw(img)
+        draw.ellipse((4, 4, size-4, size-4), outline=BORDER, width=5)
+        try:
+            font = ImageFont.truetype("arial.ttf", int(size * 0.6))
+        except:
+            font = ImageFont.load_default()
+        bbox = draw.textbbox((0, 0), "?", font=font)
+        tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+        draw.text(((size-tw)/2, (size-th)/2 - bbox[1]), "?", fill=TEXT_DIM, font=font)
+        return img
 
     def _create_default_icon(self, size=32):
         img = Image.new("RGBA", (size, size), (88, 166, 255, 255))  # ACCENT color
@@ -4069,7 +5244,7 @@ class PingApp(tk.Tk):
         modal.resizable(False, False)
         modal.transient(self)
         modal.grab_set()
-        w, h = 520, 500   # enough height for bigger buttons
+        w, h = 520, 600   # enough height for bigger buttons
         x = self.winfo_rootx() + (self.winfo_width() - w) // 2
         y = self.winfo_rooty() + (self.winfo_height() - h) // 2
         modal.geometry(f"{w}x{h}+{x}+{y}")
@@ -4180,6 +5355,29 @@ class PingApp(tk.Tk):
         icon_entry = tk.Entry(icon_container, textvariable=icon_path_var)
         icon_entry.pack_forget()  # hidden
 
+
+        tk.Label(card, text="START ICON (shown on loading screen)", font=("Consolas", 9, "bold"),
+                fg=SILVER, bg=CARD_BG).pack(anchor="w")
+
+        start_icon_container = tk.Frame(card, bg=CARD_BG)
+        start_icon_container.pack(fill="x", pady=(4, 16))
+
+        start_icon_path_var = tk.StringVar(value="")
+
+        def pick_start_icon():
+            from tkinter import filedialog
+            f = filedialog.askopenfilename(
+                title="SELECT START ICON (PNG/JPG/JPEG)",
+                filetypes=[("Image files", "*.png *.jpg *.jpeg"), ("PNG images", "*.png"), ("JPEG images", "*.jpg;*.jpeg"), ("All files", "*.*")]
+            )
+            if f:
+                start_icon_path_var.set(f)
+
+        start_btn = tk.Button(start_icon_container, text="SELECT START ICON", command=pick_start_icon,
+                        font=("Consolas", 10), fg=SILVER, bg=BORDER,
+                        relief="flat", bd=0, padx=20, pady=8, cursor="hand2")
+        start_btn.pack(fill="x", expand=True)
+
         def pick_icon():
             from tkinter import filedialog
             f = filedialog.askopenfilename(
@@ -4216,6 +5414,23 @@ class PingApp(tk.Tk):
                 "icon_path": "assets/images/icon.png"
             }
             chosen_icon = icon_path_var.get().strip()
+
+            chosen_start_icon = start_icon_path_var.get().strip()
+            if chosen_start_icon:
+                try:
+                    import shutil
+                    dest = _asset("assets/images/start/start.png")
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    # Convert to PNG if needed
+                    if chosen_start_icon.lower().endswith(('.jpg', '.jpeg')):
+                        if not convert_to_png(chosen_start_icon, dest):
+                            raise Exception("Failed to convert JPG to PNG")
+                    else:
+                        shutil.copy2(chosen_start_icon, dest)
+                except Exception as e:
+                    msg.config(text=f"Failed to copy start icon: {e}", fg=RED)
+                    return
+                
             if chosen_icon and chosen_icon != "assets/images/icon.png":
                 try:
                     import shutil
@@ -4558,21 +5773,43 @@ class PingApp(tk.Tk):
 
 
     def _dark_titlebar_for(self, win):
+        # Determine titlebar style based on theme BG
+        is_light_theme = is_light_color(BG)
+        
         def _apply(w):
             try:
-                DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-                hwnd = ctypes.windll.user32.GetParent(w.winfo_id())
-                ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                    hwnd,
-                    DWMWA_USE_IMMERSIVE_DARK_MODE,
-                    ctypes.byref(ctypes.c_int(1)),
-                    ctypes.sizeof(ctypes.c_int)
-                )
+                if not is_light_theme:
+                    # Dark theme - use dark titlebar
+                    DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+                    hwnd = ctypes.windll.user32.GetParent(w.winfo_id())
+                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                        hwnd,
+                        DWMWA_USE_IMMERSIVE_DARK_MODE,
+                        ctypes.byref(ctypes.c_int(1)),
+                        ctypes.sizeof(ctypes.c_int)
+                    )
+                else:
+                    # Light theme - use light titlebar BUT with gray/dark text
+                    # Don't force dark mode (0 = system default/light)
+                    DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+                    hwnd = ctypes.windll.user32.GetParent(w.winfo_id())
+                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                        hwnd,
+                        DWMWA_USE_IMMERSIVE_DARK_MODE,
+                        ctypes.byref(ctypes.c_int(0)),
+                        ctypes.sizeof(ctypes.c_int)
+                    )
             except Exception:
                 pass
+            
             try:
+                # Set border color - use darker gray for light themes, card_bg for dark
                 DWMWA_BORDER_COLOR = 34
-                col = "2a2a2a"
+                if is_light_theme:
+                    # Use a sophisticated dark gray for light theme borders
+                    col = "#4a4a5a"  # Dark gray, not pure black
+                else:
+                    col = CARD_BG.lstrip('#')
                 r, g, b = (int(col[i:i+2], 16) for i in (0, 2, 4))
                 colorref = r | (g << 8) | (b << 16)
                 hwnd = ctypes.windll.user32.GetParent(w.winfo_id())
@@ -4583,6 +5820,28 @@ class PingApp(tk.Tk):
                 )
             except Exception:
                 pass
+            
+            # Also try to set the title bar text color via dark/light mode
+            try:
+                # For Windows 11, we can also set the caption color
+                DWMWA_CAPTION_COLOR = 35
+                if is_light_theme:
+                    # Dark gray caption text for light theme
+                    col = "#2a2a3a"
+                else:
+                    # Light text for dark theme
+                    col = "#e0e0e0"
+                r, g, b = (int(col[i:i+2], 16) for i in (0, 2, 4))
+                colorref = r | (g << 8) | (b << 16)
+                hwnd = ctypes.windll.user32.GetParent(w.winfo_id())
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, DWMWA_CAPTION_COLOR,
+                    ctypes.byref(ctypes.c_int(colorref)),
+                    ctypes.sizeof(ctypes.c_int)
+                )
+            except Exception:
+                pass
+            
             try:
                 _ico_path = os.path.join(_base(), "_blank.ico")
                 if os.path.exists(_ico_path):
@@ -4598,17 +5857,60 @@ class PingApp(tk.Tk):
         _apply(win)
         win.after(100, lambda: _apply(win))
         win.after(300, lambda: _apply(win))
+        win.after(500, lambda: _apply(win))
 
     def _dark_titlebar(self):
+        if not IS_WIN:
+            return
+        
+        is_light_theme = is_light_color(BG)
+        
         try:
             DWMWA_USE_IMMERSIVE_DARK_MODE = 20
             hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
             if not hwnd:
                 hwnd = self.winfo_id()
+            # 0 = light mode, 1 = dark mode
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
                 hwnd,
                 DWMWA_USE_IMMERSIVE_DARK_MODE,
-                ctypes.byref(ctypes.c_int(1)),
+                ctypes.byref(ctypes.c_int(0 if is_light_theme else 1)),
+                ctypes.sizeof(ctypes.c_int)
+            )
+        except Exception:
+            pass
+        
+        # Set border color
+        try:
+            DWMWA_BORDER_COLOR = 34
+            if is_light_theme:
+                col = "#4a4a5a"  # Dark gray for light themes
+            else:
+                col = CARD_BG.lstrip('#')
+            r, g, b = (int(col[i:i+2], 16) for i in (0, 2, 4))
+            colorref = r | (g << 8) | (b << 16)
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id()) or self.winfo_id()
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, DWMWA_BORDER_COLOR,
+                ctypes.byref(ctypes.c_int(colorref)),
+                ctypes.sizeof(ctypes.c_int)
+            )
+        except Exception:
+            pass
+        
+        # Set caption text color
+        try:
+            DWMWA_CAPTION_COLOR = 35
+            if is_light_theme:
+                col = "#2a2a3a"  # Dark gray text for light theme
+            else:
+                col = "#e0e0e0"  # Light text for dark theme
+            r, g, b = (int(col[i:i+2], 16) for i in (0, 2, 4))
+            colorref = r | (g << 8) | (b << 16)
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id()) or self.winfo_id()
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, DWMWA_CAPTION_COLOR,
+                ctypes.byref(ctypes.c_int(colorref)),
                 ctypes.sizeof(ctypes.c_int)
             )
         except Exception:
@@ -4619,11 +5921,40 @@ class PingApp(tk.Tk):
         if isinstance(widget, (tk.Frame, tk.Canvas, tk.Label)):
             self.focus_set()
 
+    def _apply_dark_titlebar(self, window):
+        if not IS_WIN:
+            return
+        
+        try:
+            # Get the window handle
+            hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
+            if not hwnd:
+                hwnd = window.winfo_id()
+            
+            # Set dark mode for title bar
+            DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_USE_IMMERSIVE_DARK_MODE,
+                ctypes.byref(ctypes.c_int(1)),
+                ctypes.sizeof(ctypes.c_int)
+            )
+            
+            # Force a redraw of the title bar
+            ctypes.windll.user32.SetWindowPos(
+                hwnd, None, 0, 0, 0, 0,
+                0x0001 | 0x0002  # SWP_NOMOVE | SWP_NOSIZE
+            )
+        except Exception:
+            pass
+
     def __init__(self):
         super().__init__()
         self.title(" ")
 
         self.withdraw()
+
+        self._apply_dark_titlebar(self)
         
         # --- Load saved geometry FIRST, before any other geometry call ---
         geom = load_geometry()
@@ -4641,6 +5972,10 @@ class PingApp(tk.Tk):
         self.configure(bg=BG) 
         self.resizable(True, True)
         self.minsize(1200, 760)
+
+        self.after(1, lambda: self._apply_dark_titlebar(self))
+        self.after(50, lambda: self._apply_dark_titlebar(self))
+        self.after(100, lambda: self._apply_dark_titlebar(self))
         
         # --- Set window icon with fallback ---
                 # --- Set window icon with fallback ---
@@ -4714,8 +6049,8 @@ class PingApp(tk.Tk):
         self.after(5000, self._enter_idle)
 
         self.bind("<Configure>", self._save_geometry)
-
-        self.deiconify()
+        
+        self._show_splash()
 
     @property
     def _interval(self):
@@ -4730,6 +6065,7 @@ class PingApp(tk.Tk):
 
     def _open_add_host_modal(self):
         modal = tk.Toplevel(self)
+        modal.withdraw()
         modal.title("")
         modal.configure(bg=BG)
         modal.resizable(False, False)
@@ -4743,10 +6079,10 @@ class PingApp(tk.Tk):
         modal.geometry(f"{w}x{h}+{x}+{y}")
         modal.configure(highlightbackground=SILVER, highlightthickness=0)
         self.after(100, lambda: self._dark_titlebar_for(modal))
-
+        self._dark_titlebar_for(modal)
         card = tk.Frame(modal, bg=CARD_BG, padx=18, pady=16)
         card.pack(fill="both", expand=True)
-
+        modal.deiconify()
         top = tk.Frame(card, bg=CARD_BG)
         top.pack(fill="x")
 
@@ -4954,6 +6290,13 @@ class PingApp(tk.Tk):
 
 
     def _reset_idle_timer(self, event=None):
+        # Don't start idle timer on Home panel
+        if self._active_panel == "home":
+            if self._idle_restore_job:
+                self.after_cancel(self._idle_restore_job)
+                self._idle_restore_job = None
+            return
+        
         if self._idle_restore_job:
             self.after_cancel(self._idle_restore_job)
             self._idle_restore_job = None
@@ -4976,6 +6319,10 @@ class PingApp(tk.Tk):
         if focused and isinstance(focused, (tk.Entry, tk.Text)):
             # Reset timer instead
             self._reset_idle_timer()
+            return
+        
+        # Don't hide header when on Home panel
+        if self._active_panel == "home":
             return
         
         if getattr(self, "_ui_hidden", False):
@@ -5010,7 +6357,6 @@ class PingApp(tk.Tk):
     def _fade_out_header(self, steps=10, delay=30, current=10):
         if not getattr(self, "_ui_hidden", False):
             return
-        # Gradually dim status label as a visual cue before collapse
         ratio = current / steps
         r = int(0x63 * ratio)
         g = int(0x70 * ratio)
@@ -5021,27 +6367,45 @@ class PingApp(tk.Tk):
         except Exception:
             pass
         if current <= 0:
-            self.hdr.pack_forget()
+            if not hasattr(self, "_hdr_cover") or not self._hdr_cover.winfo_exists():
+                self._hdr_cover = tk.Frame(self.hdr, bg=BG)
+            self._hdr_cover.place(relx=0, rely=0, relwidth=1, relheight=1)
+            self._hdr_cover.lift()
+            self.hdr.configure(pady=0, height=1)
+            self.hdr.pack_propagate(False)
             if self._settings_visible:
                 self._settings_frame.pack_forget()
             return
         self.after(delay, lambda: self._fade_out_header(steps, delay, current - 1))
 
     def _exit_idle(self):
+        if self._active_panel == "home":
+            if getattr(self, "_ui_hidden", False):
+                self._ui_hidden = False
+            return
+
         if not getattr(self, "_ui_hidden", False):
             return
         self._ui_hidden = False
+
+        self.hdr.pack_propagate(True)
+        self.hdr.configure(pady=14, height=0)
+
+        if hasattr(self, "_hdr_cover") and self._hdr_cover.winfo_exists():
+            self._hdr_cover.place_forget()
+
         self.hdr.pack(fill="x", after=self._hdr_anchor)
+        self.status_lbl.config(fg=BG)
+
         if self._settings_visible:
             self._settings_frame.pack(fill="x", after=self._settings_anchor,
-                                      padx=18, pady=(0, 4))
+                                    padx=18, pady=(0, 4))
         self._fade_in_header(steps=10, delay=30)
 
     def _fade_in_header(self, steps=10, delay=30, current=0):
         if getattr(self, "_ui_hidden", False):
             return
         ratio = current / steps
-        # Interpolate from #000000 toward TEXT_DIM (#637080)
         r = int(0x63 * ratio)
         g = int(0x70 * ratio)
         b = int(0x80 * ratio)
@@ -5164,12 +6528,15 @@ class PingApp(tk.Tk):
             wrap = tk.Frame(iv_btns, bg=BORDER, padx=1, pady=1)
             wrap.pack(side="left", padx=2)
             b = tk.Button(wrap, text=label,
-                          font=("Consolas", 8, "bold"),
-                          fg=TEXT_DIM, bg=CARD_BG,
-                          activeforeground=TEXT, activebackground=ACCENT_DIM,
-                          relief="flat", bd=0, cursor="hand2",
-                          height=1, width=6,
-                          command=lambda l=label: self._user_set_interval(l))
+                        font=("Consolas", 8, "bold"),
+                        fg=TEXT_DIM, bg=CARD_BG,
+                        activeforeground=TEXT, activebackground=ACCENT_DIM,
+                        relief="flat", bd=0,
+                        highlightthickness=0,
+                        highlightbackground=BG,
+                        cursor="hand2",
+                        height=1, width=6,
+                        command=lambda l=label: self._user_set_interval(l))
             b.pack(padx=2, pady=2)
             b._wrap = wrap
             self._iv_btns[label] = b
@@ -5212,14 +6579,17 @@ class PingApp(tk.Tk):
         self._search_clear.pack(side="right")
         self._search_clear.pack_forget()
 
-        # Header buttons
+        _timer_fg = TEXT_DIM if is_light_color(BG) else "#E0E0E0"
+        _timer_active_fg = TEXT if is_light_color(BG) else "#F5F5F5"
         tk.Button(right_hdr, text="⏱",
-                font=("Consolas", 11), 
-                fg="#E0E0E0",               # Brighter silver for the normal state
+                font=("Consolas", 11),
+                fg=_timer_fg,
                 bg=BG,
-                activeforeground="#F5F5F5", # Even brighter silver/white when clicked
+                activeforeground=_timer_active_fg,
                 activebackground=BG,
-                relief="flat", bd=0, padx=6, pady=5, cursor="hand2",
+                relief="flat", bd=0,
+                highlightthickness=0,
+                padx=6, pady=5, cursor="hand2",
                 command=self._toggle_settings).pack(side="left", padx=(0, 4))
         
 
@@ -5227,28 +6597,20 @@ class PingApp(tk.Tk):
         logs_wrap.pack(side="left", padx=(0, 10))
         logs_btn = tk.Button(logs_wrap, text="LOGS",
                         font=("Consolas", 9, "bold"), fg=TEXT, bg=CARD_BG,
-                        activeforeground=TEXT, activebackground=ACCENT_DIM,
+                        activeforeground=TEXT, activebackground=CARD_BG,  # Changed to match normal bg
                         relief="flat", bd=0, padx=18, pady=6, cursor="hand2",
                         command=self._open_log_modal)
         logs_btn.pack()
 
-        # ADD HOST button with hover effect
-        # ADD HOST — real cyan border via wrapper frame
         add_host_wrap = tk.Frame(right_hdr, bg=TEXT, padx=2, pady=4)
         add_host_wrap.pack(side="left", padx=(0, 10))
         add_host_btn = tk.Button(add_host_wrap, text="+ HOST",
-                  font=("Consolas", 9), fg=TEXT, bg=CARD_BG,
-                  activeforeground=TEXT, activebackground=ACCENT_DIM,
-                  relief="flat", bd=0, padx=18, pady=6, cursor="hand2",
-                  command=self._toggle_add_host)
+                font=("Consolas", 9), fg=TEXT, bg=CARD_BG,
+                activeforeground=TEXT, activebackground=CARD_BG,  # Changed to match normal bg
+                relief="flat", bd=0, padx=18, pady=6, cursor="hand2",
+                command=self._toggle_add_host)
         add_host_btn.pack()
 
-        def add_host_enter(e):
-            add_host_btn.config(bg=ACCENT_DIM)
-        def add_host_leave(e):
-            add_host_btn.config(bg=CARD_BG)
-        add_host_btn.bind("<Enter>", add_host_enter)
-        add_host_btn.bind("<Leave>", add_host_leave)
 
         
         console_wrap = tk.Frame(right_hdr, bg=TEXT, padx=2, pady=4)
@@ -5257,7 +6619,7 @@ class PingApp(tk.Tk):
             console_wrap,
             text="</>",
             font=("Consolas", 9), fg=TEXT, bg=CARD_BG,
-            activeforeground=TEXT, activebackground=ACCENT_DIM,
+            activeforeground=TEXT, activebackground=CARD_BG,  # Changed to match normal bg
             relief="flat", bd=0, padx=20, pady=6, cursor="hand2",
             command=self._open_console_modal
         )
@@ -5267,18 +6629,11 @@ class PingApp(tk.Tk):
         bio_wrap = tk.Frame(right_hdr, bg=TEXT, padx=2, pady=4)
         bio_wrap.pack(side="left", padx=(0, 10))
         bio_btn = tk.Button(bio_wrap, text="+ BIO",
-                  font=("Consolas", 9), fg=TEXT, bg=CARD_BG,
-                  activeforeground=TEXT, activebackground=ACCENT_DIM,
-                  relief="flat", bd=0, padx=18, pady=6, cursor="hand2",
-                  command=lambda: self.misc._open_add_misc_modal())
+                font=("Consolas", 9), fg=TEXT, bg=CARD_BG,
+                activeforeground=TEXT, activebackground=CARD_BG,  # Changed to match normal bg
+                relief="flat", bd=0, padx=18, pady=6, cursor="hand2",
+                command=lambda: self.misc._open_add_misc_modal())
         bio_btn.pack()
-
-        def bio_enter(e):
-            bio_btn.config(bg=ACCENT_DIM)
-        def bio_leave(e):
-            bio_btn.config(bg=CARD_BG)
-        bio_btn.bind("<Enter>", bio_enter)
-        bio_btn.bind("<Leave>", bio_leave)
 
         # PING ALL — real cyan border via wrapper frame
         # PING ALL — real cyan border via wrapper frame
@@ -5352,9 +6707,45 @@ class PingApp(tk.Tk):
                   relief="flat", bd=0, padx=10, pady=4, cursor="hand2",
                   command=self._add_host).pack(side="left")
 
+        # ── Left-edge tab strip (NEUTRAL COLORS) ──
+       # ── Left-edge tab strip (NEUTRAL COLORS) ──
+        NEUTRAL_TAB_BG = "#323232"
+        NEUTRAL_TAB_HOVER = "#3B3B3B"
+        NEUTRAL_TAB_UNSELECTED = "#898989"  # Light gray - visible on dark AND light themes
+        
+        self._tab_strip = tk.Frame(self, bg=NEUTRAL_TAB_BG, width=32)
+        self._tab_strip.pack(side="left", fill="y")
+        self._tab_strip.pack_propagate(False)
+
+        self._tab_home_btn = tk.Button(
+            self._tab_strip, text="⌂",
+            font=("Consolas", 14), fg=NEUTRAL_TAB_UNSELECTED, bg=NEUTRAL_TAB_BG,
+            activeforeground=TEXT, activebackground=NEUTRAL_TAB_HOVER,
+            relief="flat", bd=0, cursor="hand2",
+            command=lambda: self._switch_panel("home"))
+        self._tab_home_btn.pack(pady=(16, 4))
+
+        self._tab_net_btn = tk.Button(
+            self._tab_strip, text="⣿",
+            font=("Consolas", 14), fg=NEUTRAL_TAB_UNSELECTED, bg=NEUTRAL_TAB_BG,
+            activeforeground=TEXT, activebackground=NEUTRAL_TAB_HOVER,
+            relief="flat", bd=0, cursor="hand2",
+            command=lambda: self._switch_panel("network"))
+        self._tab_net_btn.pack(pady=4)
+
+        tk.Frame(self._tab_strip, bg=NEUTRAL_TAB_HOVER, height=1).pack(fill="x", pady=4)
+
+
+        # ── Panel host (everything to the right of the tab strip) ──
+        self._panel_host = tk.Frame(self, bg=BG)
+        self._panel_host.pack(side="left", fill="both", expand=True)
+
+        self._active_panel = "home"
+
         # ── Body: left card grid + divider + right misc sidebar ──
-        body = tk.Frame(self, bg=BG)
+        body = tk.Frame(self._panel_host, bg=BG)
         body.pack(fill="both", expand=True)
+        self._network_panel = body
 
         # Left side
         left_body = tk.Frame(body, bg=BG)
@@ -5380,6 +6771,13 @@ class PingApp(tk.Tk):
 
         self.misc = MiscSidebar(sidebar_outer)
         self.misc.pack(fill="both", expand=True, padx=12, pady=12)
+        self._home_panel_widget = HomePanel(self._panel_host, self)
+
+        # ── Force home as default on launch ──
+        self._network_panel.pack_forget()
+        self._home_panel_widget.pack(fill="both", expand=True)
+        self._tab_home_btn.config(fg="#ffffff")  
+        self._tab_net_btn.config(fg=SILVER)
 
 
         self.bind_all("<Button-1>", lambda e: self.focus_set() if e.widget not in (
@@ -5598,6 +6996,9 @@ class PingApp(tk.Tk):
         summary_color = RED if down else YELLOW if warn else GREEN
         self._set_status("   ".join(parts), SILVER)
 
+        if hasattr(self, "_home_panel_widget"):
+            self._home_panel_widget.refresh_summary()
+
         # Flash the status label once to draw attention
         def _flash(count=0):
             if count >= 4:
@@ -5620,23 +7021,22 @@ class PingApp(tk.Tk):
     def _open_log_modal(self):
         import csv as _csv
         modal = tk.Toplevel(self)
+        modal.withdraw()                     # ← prevent white flash
         modal.title("")
         modal.configure(bg=BG)
         modal.resizable(True, True)
         modal.transient(self)
         modal.grab_set()
-        w, h = 980, 560
+        w, h = 1200, 560
         x = self.winfo_rootx() + (self.winfo_width()  - w) // 2
         y = self.winfo_rooty() + (self.winfo_height() - h) // 2
-        modal.geometry(f"1200x560+{x}+{y}")
+        modal.geometry(f"{w}x{h}+{x}+{y}")
         modal.configure(highlightbackground=BORDER, highlightthickness=0)
-        self.after(100, lambda: self._dark_titlebar_for(modal))
-        modal.update_idletasks()
+        
+        # Apply dark title bar immediately
         self._dark_titlebar_for(modal)
-        modal.after(100, lambda: self._dark_titlebar_for(modal))
-        modal.after(500, lambda: self._dark_titlebar_for(modal))
 
-        # ── Load CSV ──
+        # Load CSV data (same as before)
         all_rows = []
         if os.path.exists(LOG_PATH):
             try:
@@ -5654,56 +7054,46 @@ class PingApp(tk.Tk):
             if "yellow"       in diag:                        return "yellow"
             return "dim"
 
+        # Main container
         card = tk.Frame(modal, bg=CARD_BG)
         card.pack(fill="both", expand=True)
 
         # ── Top bar ──
-        topbar = tk.Frame(card, bg="#060a10", padx=16, pady=10)
+        topbar = tk.Frame(card, bg=CARD_BG, padx=16, pady=10)
         topbar.pack(fill="x")
-
         tk.Label(topbar, text="EVENT", font=("Consolas", 11, "bold"),
-                fg=SILVER, bg="#060a10").pack(side="left")
+                fg=SILVER, bg=CARD_BG).pack(side="left")
         tk.Label(topbar, text="LOG",  font=("Consolas", 11, "bold"),
-                fg=SILVER, bg="#060a10").pack(side="left")
+                fg=SILVER, bg=CARD_BG).pack(side="left")
         self._log_count_lbl = tk.Label(topbar, text=f"  {len(all_rows)} entries",
-                font=("Consolas", 8), fg=TEXT_DIM, bg="#060a10")
+                font=("Consolas", 8), fg=TEXT_DIM, bg=CARD_BG)
         self._log_count_lbl.pack(side="left", padx=(8,0))
-        close_btn = tk.Button(topbar, text="✕", font=("Consolas", 10),
-                fg=TEXT_DIM, bg="#060a10",
-                activeforeground=RED, activebackground="#060a10",
-                relief="flat", bd=0, cursor="hand2",
-                command=modal.destroy)
-        close_btn.pack(side="right")
-        close_btn.bind("<Enter>", lambda e: close_btn.config(fg=RED))
-        close_btn.bind("<Leave>", lambda e: close_btn.config(fg=TEXT_DIM))
         tk.Frame(card, bg=SILVER, height=2).pack(fill="x")
 
         # ── Search bar ──
-        search_bar = tk.Frame(card, bg="#080d14", padx=16, pady=7)
+        search_bar = tk.Frame(card, bg=CARD_BG, padx=16, pady=7)
         search_bar.pack(fill="x")
         tk.Label(search_bar, text="⌕", font=("Consolas", 11),
-                fg=TEXT_DIM, bg="#080d14").pack(side="left", padx=(0,6))
+                fg=TEXT_DIM, bg=CARD_BG).pack(side="left", padx=(0,6))
         search_var = tk.StringVar()
         search_e = tk.Entry(search_bar, textvariable=search_var,
-                            font=("Consolas", 9), fg=TEXT, bg="#080d14",
+                            font=("Consolas", 9), fg=TEXT, bg=BG,
                             insertbackground=TEXT, relief="flat",
-                            bd=0, highlightthickness=0)
+                            bd=0, highlightthickness=1, highlightbackground=BORDER)
         search_e.pack(side="left", fill="x", expand=True, ipady=2)
         clr_btn = tk.Button(search_bar, text="✕", font=("Consolas", 8),
-                            fg=TEXT_DIM, bg="#080d14",
-                            activeforeground=RED, activebackground="#080d14",
+                            fg=TEXT_DIM, bg=CARD_BG,
+                            activeforeground=RED, activebackground=CARD_BG,
                             relief="flat", bd=0, cursor="hand2",
                             command=lambda: search_var.set(""))
         clr_btn.pack(side="right")
         tk.Frame(card, bg=BORDER, height=1).pack(fill="x")
 
-        # ── Fixed-width column spec (pixels, adjusted for longer timestamp) ──
+        # ── Column headers ──
         TABS = ("340", "540", "720", "880", "960", "1020", "1090")
-
-        # ── Column header ──
-        hdr_bar = tk.Frame(card, bg="#0a0e16", padx=16, pady=6)
+        hdr_bar = tk.Frame(card, bg=CARD_BG, padx=16, pady=6)
         hdr_bar.pack(fill="x")
-        hdr_txt = tk.Text(hdr_bar, bg="#0a0e16", fg=TEXT_DIM,
+        hdr_txt = tk.Text(hdr_bar, bg=CARD_BG, fg=TEXT_DIM,
                         font=("Consolas", 8, "bold"),
                         relief="flat", bd=0, highlightthickness=0,
                         wrap="none", cursor="arrow", height=1,
@@ -5713,25 +7103,28 @@ class PingApp(tk.Tk):
         hdr_txt.pack(fill="x")
         tk.Frame(card, bg=BORDER, height=1).pack(fill="x")
 
-        # ── Text widget ──
-        txt = tk.Text(card, bg=CARD_BG, fg=TEXT, font=("Consolas", 8),
+        # ── Main log area (Text widget) ──
+        txt = tk.Text(card, bg=BG, fg=TEXT, font=("Consolas", 8),
                     relief="flat", bd=0, highlightthickness=0,
                     wrap="none", cursor="arrow", padx=16, pady=4,
                     tabs=TABS, tabstyle="wordprocessor")
         txt.pack(fill="both", expand=True)
 
+        # Mouse wheel binding (same as before)
         txt.bind("<MouseWheel>",
                 lambda e: txt.yview_scroll(int(-1*(e.delta/120)), "units"))
         modal.bind("<MouseWheel>",
                 lambda e: txt.yview_scroll(int(-1*(e.delta/120)), "units"))
 
+        # Tags
         txt.tag_config("red",      foreground=RED)
         txt.tag_config("orange",   foreground=ORANGE)
         txt.tag_config("yellow",   foreground=YELLOW)
         txt.tag_config("dim",      foreground=TEXT_DIM)
         txt.tag_config("txt",      foreground=TEXT)
         txt.tag_config("accent",   foreground=ACCENT)
-        txt.tag_config("stripe",   background="#0b0f18")
+        stripe_bg = darken_color(CARD_BG, 0.1) if is_light_color(BG) else "#0a0e16"
+        txt.tag_config("stripe", background=stripe_bg)
         txt.tag_config("ts",       foreground="#FFFFFF", font=("Consolas", 8, "bold"))
         txt.tag_config("sev_crit", foreground=RED,    font=("Consolas", 8, "bold"))
         txt.tag_config("sev_warn", foreground=ORANGE, font=("Consolas", 8, "bold"))
@@ -5753,26 +7146,21 @@ class PingApp(tk.Tk):
                     base  = ("stripe",) if i % 2 == 0 else ()
                     fc    = sev_tag(sev)
 
-                    # Format timestamp with day of week
-                    # Inside render(rows), replace the timestamp formatting block with:
-
                     ts_raw = row.get("timestamp", "—")
                     try:
                         dt = datetime.datetime.strptime(ts_raw, "%Y-%m-%d %H:%M:%S")
                         hour = dt.hour % 12
-                        if hour == 0:
-                            hour = 12
+                        if hour == 0: hour = 12
                         minute = dt.minute
                         ampm = "AM" if dt.hour < 12 else "PM"
                         day_name = dt.strftime("%A").upper()
-                        # Format: 2026-06-04, 2:30 PM, THURSDAY
                         ts_display = f"{dt.strftime('%Y-%m-%d')}, {hour}:{minute:02d} {ampm}, {day_name}"
                     except Exception:
-                        ts_display = ts_raw[:19]   # fallback to original
+                        ts_display = ts_raw[:19]
 
-                    what = row.get("what",      "—")[:18]
-                    srv  = row.get("server",    "—")[:16]
-                    ip   = row.get("ip",        "—")
+                    what = row.get("what", "—")[:18]
+                    srv  = row.get("server", "—")[:16]
+                    ip   = row.get("ip", "—")
 
                     raw   = row.get("diagnostic", "")
                     avg_m = re.search(r"avg=([^\s,]+)", raw)
@@ -5807,24 +7195,19 @@ class PingApp(tk.Tk):
             if not q:
                 render(all_rows)
                 return
-            
             filtered = []
             for row in all_rows:
-                # Build the same formatted timestamp as used in render
                 ts_raw = row.get("timestamp", "—")
                 try:
                     dt = datetime.datetime.strptime(ts_raw, "%Y-%m-%d %H:%M:%S")
                     hour = dt.hour % 12
-                    if hour == 0:
-                        hour = 12
+                    if hour == 0: hour = 12
                     minute = dt.minute
                     ampm = "AM" if dt.hour < 12 else "PM"
                     day_name = dt.strftime("%A").upper()
                     ts_display = f"{dt.strftime('%Y-%m-%d')}, {hour}:{minute:02d} {ampm}, {day_name}"
                 except Exception:
                     ts_display = ts_raw[:19]
-                
-                # Combine all searchable text (original values + formatted timestamp)
                 searchable = " ".join([
                     ts_display,
                     row.get("what", ""),
@@ -5832,32 +7215,44 @@ class PingApp(tk.Tk):
                     row.get("ip", ""),
                     row.get("diagnostic", "")
                 ]).lower()
-                
                 if q in searchable:
                     filtered.append(row)
-            
             render(filtered)
 
         search_var.trace_add("write", on_search)
         clr_btn.pack_forget()
 
-        # ── Footer ──
+        # ── Footer stats ──
         tk.Frame(card, bg=BORDER, height=1).pack(fill="x")
-        foot = tk.Frame(card, bg="#060a10", padx=16, pady=8)
+        foot = tk.Frame(card, bg=CARD_BG, padx=16, pady=8)
         foot.pack(fill="x")
         red_c    = sum(1 for r in all_rows if sev_of(r) == "red")
         orange_c = sum(1 for r in all_rows if sev_of(r) == "orange")
         up_c     = sum(1 for r in all_rows if sev_of(r) == "dim")
         for label, val, col in [
             ("CRIT ", red_c,    RED),
-            ("  WARN ", orange_c, ORANGE),
+            ("  WARN ", orange_c,  ORANGE),
             ("  OK ",   up_c,    GREEN),
         ]:
             tk.Label(foot, text=label, font=("Consolas", 7),
-                    fg=TEXT_DIM, bg="#060a10").pack(side="left")
+                    fg=TEXT_DIM, bg=CARD_BG).pack(side="left")
             tk.Label(foot, text=str(val), font=("Consolas", 7, "bold"),
-                    fg=col, bg="#060a10").pack(side="left")
+                    fg=col, bg=CARD_BG).pack(side="left")
 
+        # Force dark background on every widget
+        def force_dark_bg(widget):
+            try:
+                widget.configure(bg=BG if widget is modal or widget is txt else CARD_BG)
+            except:
+                pass
+            for child in widget.winfo_children():
+                force_dark_bg(child)
+
+        force_dark_bg(modal)
+        modal.update_idletasks()
+
+        # 👇 Instant show – no fade animation
+        modal.deiconify()
         search_e.focus_set()
 
     def _toggle_settings(self):

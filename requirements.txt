@@ -3,5 +3,6 @@ pip install tkinterweb
 pip install pywebview
 pip install playwright pillow
 pip install ujson
+pip install speedtest-cli
 
 python -m playwright install chromium
